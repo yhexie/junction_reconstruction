@@ -5,7 +5,9 @@ message GpsTraj{
 message TrajPoint{
     required uint32 car_id = 1;
     required bool is_heavy = 2;
-    required float easting = 3;
-    required float northing = 4;
-    required uint64 timestamp = 5;
+    required float lon = 3;
+    required float lat = 4;
+    required float x = 5;
+    required float y = 6;
+    required uint64 timestamp = 7;
 }
