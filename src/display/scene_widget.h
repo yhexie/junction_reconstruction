@@ -34,8 +34,10 @@ signals:
     
     public slots:
     void slotOpenTrajectories(void);
+    void slotOpenTrajectoriesFromFile(const QString &filename);
     void slotSaveTrajectories(void);
     void slotOpenOsmMap(void);
+    void slotOpenOsmMapFromFile(const QString &filename);
     void slotColorizeUniform(void);
     void slotColorizeSampleTime(void);
     void slotColorizeSampleOrder(void);

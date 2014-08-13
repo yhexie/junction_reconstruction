@@ -185,7 +185,6 @@ bool Trajectories::loadTXT(const string& filename)
 bool Trajectories::loadPBF(const string &filename){
     GOOGLE_PROTOBUF_VERIFY_VERSION;
     
-    clock_t start = clock();
     // Prepare the coordinate projector
     Projector converter;
     bool has_correct_projection = false;
@@ -238,7 +237,7 @@ bool Trajectories::loadPBF(const string &filename){
             // Check if the x, y field of new_traj point is correct according to current projector. If not, we will reporject all x, y field from lat lon coordinate.
             float x;
             float y;
-            converter.convertLatlonToXY(new_traj.point(0).lat(), new_traj.point(0).lon(), x, y);
+            converter.convertLatlonToXY(new_traj.point(0).lat()/1.0e5, new_traj.point(0).lon()/1.0e5, x, y);
             
             if ( fabs(x - new_traj.point(0).x()) < 1e-4 &&
                 fabs(y - new_traj.point(0).y()) < 1e-4) {
@@ -265,10 +264,11 @@ bool Trajectories::loadPBF(const string &filename){
     			point.t = new_traj.point(pt_idx).timestamp();
     			point.id_trajectory = id_traj;
     			point.id_sample = pt_idx;
-                point.is_heavy = static_cast<int>(new_traj.point(pt_idx).is_heavy());
                 point.car_id = new_traj.point(pt_idx).car_id();
                 point.lon = new_traj.point(pt_idx).lon();
                 point.lat = new_traj.point(pt_idx).lat();
+                point.speed = new_traj.point(pt_idx).speed();
+                point.head = new_traj.point(pt_idx).head();
                 
     			trajectory[pt_idx] = data_->size();
     			data_->push_back(point);
@@ -279,7 +279,7 @@ bool Trajectories::loadPBF(const string &filename){
                 // Check if the x, y field is correct. If not, we will redo the projection from lat lon field.
                 float x;
                 float y;
-                converter.convertLatlonToXY(new_traj.point(pt_idx).lat(), new_traj.point(pt_idx).lon(), x, y);
+                converter.convertLatlonToXY(new_traj.point(pt_idx).lat()/1.0e5, new_traj.point(pt_idx).lon()/1.0e5, x, y);
                 
                 double t = new_traj.point(pt_idx).timestamp();
                 
@@ -300,10 +300,11 @@ bool Trajectories::loadPBF(const string &filename){
     			point.t = t;
     			point.id_trajectory = id_traj;
     			point.id_sample = pt_idx;
-                point.is_heavy = static_cast<int>(new_traj.point(pt_idx).is_heavy());
                 point.car_id = new_traj.point(pt_idx).car_id();
                 point.lon = new_traj.point(pt_idx).lon();
                 point.lat = new_traj.point(pt_idx).lat();
+                point.speed = new_traj.point(pt_idx).speed();
+                point.head = new_traj.point(pt_idx).head();
                 
     			trajectory[pt_idx] = data_->size();
     			data_->push_back(point);
@@ -314,14 +315,7 @@ bool Trajectories::loadPBF(const string &filename){
     close(fid);
     delete raw_input;
     delete coded_input;
-    
-    printf("Loading completed. %d trajectories loaded.\n", num_trajectory);
-    printf("totally there are %zu points.\n", data_->size());
-    printf("bound box: min_e=%.2f, max_e=%.2f, min_n=%.2f, max_n=%.2f\n", bound_box_[0], bound_box_[1], bound_box_[2], bound_box_[3]);
-    
-    clock_t end = clock();
-    double time_elapsed = double(end - start) / CLOCKS_PER_SEC;
-    printf("Time elapsed: %.1f sec\n", time_elapsed);
+    printf("Loading completed. %d trajectories loaded. Totally %zu points.\n", num_trajectory, data_->size());
     return true;
 }
 
@@ -338,7 +332,6 @@ bool Trajectories::load(const string& filename)
     else if (extension == ".pbf"){
 		success = loadPBF(filename);
     }
-	cout << "Done!" << endl;
     
 	if (success)
 	{
@@ -377,11 +370,8 @@ bool Trajectories::savePBF(const string &filename){
             TrajPoint* new_pt = new_traj.add_point();
             int pt_idx_in_data = trajectories_[id_traj][pt_idx];
             new_pt->set_car_id(data_->at(pt_idx_in_data).car_id);
-            if (data_->at(pt_idx_in_data).is_heavy == 0) {
-                new_pt->set_is_heavy(false);
-            }else{
-                new_pt->set_is_heavy(true);
-            }
+            new_pt->set_speed(data_->at(pt_idx_in_data).speed);
+            new_pt->set_head(data_->at(pt_idx_in_data).head);
             new_pt->set_lon(data_->at(pt_idx_in_data).lon);
             new_pt->set_lat(data_->at(pt_idx_in_data).lat);
             new_pt->set_x(data_->at(pt_idx_in_data).x);
@@ -404,7 +394,6 @@ bool Trajectories::extractFromFiles(const QStringList &filenames, QVector4D boun
     data_->clear();
     trajectories_.clear();
     bound_box_ = QVector4D(1e10, -1e10, 1e10, -1e10);
-    
     // Check bound box
     if (bound_box[1] < bound_box[0] || bound_box[3] < bound_box[2]) {
         fprintf(stderr, "Bound Box ERROR when extractng trajectories.\n");
@@ -414,7 +403,7 @@ bool Trajectories::extractFromFiles(const QStringList &filenames, QVector4D boun
     for (size_t i = 0; i < filenames.size(); ++i) {
         std::string filename(filenames.at(i).toLocal8Bit().constData());
         printf("\tExtracting from %s\n", filename.c_str());
-        Trajectories *new_trajectories = new Trajectories(this);
+        Trajectories *new_trajectories = new Trajectories(NULL);
         new_trajectories->load(filename);
         new_trajectories->extractTrajectoriesFromRegion(bound_box, this, nmin_inside_pts);
         delete new_trajectories;
@@ -422,7 +411,8 @@ bool Trajectories::extractFromFiles(const QStringList &filenames, QVector4D boun
     
     tree_->setInputCloud(data_);
     
-    printf("Totally %lu trajectories extracted.\n", trajectories_.size());
+    printf("Totally %lu trajectories, %lu points.\n", trajectories_.size(), data_->size());
+    
     return true;
 }
 
@@ -439,32 +429,32 @@ bool Trajectories::extractTrajectoriesFromRegion(QVector4D bound_box, Trajectori
     vector<int> k_indices;
     vector<float> k_distances;
     tree_->radiusSearch(center_point, radius, k_indices, k_distances);
-   
+    
     set<int> inside_trajectory_idxs;
     for (size_t i = 0; i < k_indices.size(); ++i)
     {
         const PclPoint &point = data_->at(k_indices[i]);
         inside_trajectory_idxs.insert(point.id_trajectory);
     }
-    
-    for (size_t i = 0; i < inside_trajectory_idxs.size(); ++i) {
-        // Iterate over the inside trajectories to crop trajectory segments
-        vector<int> &trajectory = trajectories_[i];
+   
+    for (set<int>::iterator it = inside_trajectory_idxs.begin(); it != inside_trajectory_idxs.end(); ++it) {
+        vector<int> &trajectory = trajectories_[*it];
         vector<PclPoint> extracted_trajectory;
         bool recording = false;
+        
+        // Traverse trajectory to chop segments.
         for (size_t pt_idx = 0; pt_idx < trajectory.size(); ++pt_idx) {
             const PclPoint &point = data_->at(trajectory[pt_idx]);
             if (point.x < bound_box[1] && point.x > bound_box[0] && point.y < bound_box[3] && point.y > bound_box[2]) {
                 // Point is inside query bound_box
                 if (!recording) {
-                    if (pt_idx == 0) {
-                        continue;
-                    }
                     recording = true;
                     extracted_trajectory.clear();
-                    // Insert previous point
-                    PclPoint &prev_point = data_->at(pt_idx-1);
-                    extracted_trajectory.push_back(prev_point);
+                    if (pt_idx > 0) {
+                        // Insert previous point
+                        PclPoint &prev_point = data_->at(trajectory[pt_idx-1]);
+                        extracted_trajectory.push_back(prev_point);
+                    }
                     // Insert this point
                     extracted_trajectory.push_back(point);
                 }
@@ -484,6 +474,11 @@ bool Trajectories::extractTrajectoriesFromRegion(QVector4D bound_box, Trajectori
                 }
             }
         }
+        if (recording){
+            if (extracted_trajectory.size() > min_inside_pts + 2) {
+                container->insertNewTrajectory(extracted_trajectory);
+            }
+        }
     }
     return true;
 }
@@ -492,6 +487,7 @@ bool Trajectories::insertNewTrajectory(vector<PclPoint> &pt_container){
     if (pt_container.empty()) {
         return true;
     }
+    
     vector<int> trajectory;
     trajectory.resize(pt_container.size());
     

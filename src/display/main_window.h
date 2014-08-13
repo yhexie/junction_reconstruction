@@ -36,7 +36,8 @@ signals:
     void keyDownPressed(void);
 	void showInformationRequested(const QString& information);
 	void showStatusRequested(const QString& status, int timeout);
-    void selectOsmFile(QModelIndex &index);
+    void newOsmFileSelected(const QString &filename);
+    void newTrajFileSelected(const QString &filename);
     
 protected:
     virtual void closeEvent(QCloseEvent *event);
@@ -50,7 +51,6 @@ private slots:
 	void slotShowStatus(const QString& status, int timeout);
     void slotOsmDirSelected(QModelIndex index);
     void slotTrajDirSelected(QModelIndex index);
-    void slotOsmFileLoaded(const QString &filename);
     void slotTrajFileLoaded(QString &filename);
     void slotOsmFileLoaded(QString &filename);
     

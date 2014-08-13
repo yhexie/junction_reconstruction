@@ -36,8 +36,8 @@ public:
 	bool load(const string &filename);
 	bool save(const string &filename);
     
-    bool extractFromFiles(const QStringList &filenames, QVector4D bound_box, int min_inside_pts = 4);
-    bool extractTrajectoriesFromRegion(QVector4D bound_box, Trajectories *container, int min_inside_pts = 4);
+    bool extractFromFiles(const QStringList &filenames, QVector4D bound_box, int min_inside_pts = 2);
+    bool extractTrajectoriesFromRegion(QVector4D bound_box, Trajectories *container, int min_inside_pts);
     bool insertNewTrajectory(vector<PclPoint> &pt_container);
     
 	void setColorMode(TrajectoryColorMode color_mode);

@@ -333,6 +333,19 @@ void SceneWidget::slotOpenTrajectories(void)
 	return;
 }
 
+void SceneWidget::slotOpenTrajectoriesFromFile(const QString &filename){
+	if (filename.isEmpty())
+		return;
+    
+    if (trajectories_->load(filename.toStdString()))
+	{
+        updateSceneBoundary(trajectories_->BoundBox());
+        updateGL();
+	}
+    
+	return;
+}
+
 void SceneWidget::slotSaveTrajectories(void)
 {
 	MainWindow* main_window = MainWindow::getInstance();
@@ -365,6 +378,18 @@ void SceneWidget::slotOpenOsmMap(void)
 	}
 	
 	return;
+}
+
+void SceneWidget::slotOpenOsmMapFromFile(const QString &filename){
+    if (filename.isEmpty())
+		return;
+    
+    clearData();
+    if (osmMap_->loadOSM(filename.toStdString()))
+	{
+        updateSceneBoundary(osmMap_->BoundBox());
+        updateGL();
+	}
 }
 
 void SceneWidget::toggleTrajectories(void)
@@ -440,7 +465,7 @@ void SceneWidget::slotExtractTrajectories(void){
 	if (filenames.isEmpty())
 		return;
     
-    trajectories_->extractFromFiles(filenames, bound_box_, 4);
+    trajectories_->extractFromFiles(filenames, bound_box_, 2);
     updateSceneBoundary(trajectories_->BoundBox());
     updateGL();
 }

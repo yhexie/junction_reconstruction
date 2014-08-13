@@ -54,8 +54,8 @@ void MainWindow::slotOsmDirSelected(QModelIndex index){
     }
     
     // Check file extension
-    if (osmFileModel->fileInfo(index).fileName().endsWith(".txt")) {
-        
+    if (osmFileModel->fileInfo(index).fileName().endsWith(".osm")) {
+        emit newOsmFileSelected(osmFileModel->filePath(index));
     }
 }
 
@@ -66,6 +66,9 @@ void MainWindow::slotTrajDirSelected(QModelIndex index){
     }
     
     // Check file extension
+    if (trajFileModel->fileName(index).endsWith(".txt") || trajFileModel->fileName(index).endsWith(".pbf")) {
+        emit newTrajFileSelected(trajFileModel->filePath(index));
+    }
 }
 
 void MainWindow::showStatus(const std::string& status, int timeout)
@@ -124,19 +127,12 @@ MainWindow* MainWindow::getInstance()
 void MainWindow::init(void)
 {
     setMouseTracking(true);
-    //SceneWidget *scene_widget = new SceneWidget(this);
-    
-    //setCentralWidget(ui_->scene_widget);
-    //    scene_widget->startRendering();
     
     connect(this, SIGNAL(showInformationRequested(const QString&)), this, SLOT(slotShowInformation(const QString&)));
-    //	connect(this, SIGNAL(showStatusRequested(const QString&, int)), this, SLOT(slotShowStatus(const QString&, int)));
     connect(ui_->actionOpenTrajectories, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotOpenTrajectories()));
     connect(ui_->actionOpenOsmMap, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotOpenOsmMap()));
     connect(ui_->actionExtractTrajectory, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotExtractTrajectories()));
 
-    //	connect(ui_->actionSaveTrajectories, SIGNAL(triggered()), scene_widget, SLOT(slotSaveTrajectories()));
-    
     loadSettings();
     
     // File
@@ -159,6 +155,7 @@ void MainWindow::init(void)
     ui_->osmDirView->hideColumn(2);
     ui_->osmDirView->hideColumn(3);
     ui_->osmDirView->setRootIndex(osmFileModel->setRootPath(QDir::currentPath()));
+    connect(this, SIGNAL(newOsmFileSelected(const QString &)), ui_->scene_widget, SLOT(slotOpenOsmMapFromFile(const QString &)));
     connect(ui_->scene_widget, SIGNAL(osmFileLoaded(QString &)), this, SLOT(slotOsmFileLoaded(QString &)));
     
     ui_->trajDirView->setModel(trajFileModel);
@@ -170,6 +167,7 @@ void MainWindow::init(void)
     connect(ui_->osmDirView, SIGNAL(doubleClicked(QModelIndex)), this, SLOT(slotOsmDirSelected(QModelIndex)));
     connect(ui_->trajDirView, SIGNAL(doubleClicked(QModelIndex)), this, SLOT(slotTrajDirSelected(QModelIndex)));
     connect(ui_->scene_widget, SIGNAL(trajFileLoaded(QString &)), this, SLOT(slotTrajFileLoaded(QString &)));
+    connect(this, SIGNAL(newTrajFileSelected(const QString &)), ui_->scene_widget, SLOT(slotOpenTrajectoriesFromFile(const QString &)));
     
     return;
 }
@@ -225,8 +223,4 @@ void MainWindow::slotTrajFileLoaded(QString &filename){
 void MainWindow::slotOsmFileLoaded(QString &filename){
     ui_->osmDirView->setRootIndex(osmFileModel->setRootPath(QFileInfo(filename).absoluteDir().absolutePath()));
     ui_->osmDirView->setCurrentIndex(osmFileModel->index(filename));
-}
-
-void MainWindow::slotOsmFileLoaded(const QString &filename){
-    
 }

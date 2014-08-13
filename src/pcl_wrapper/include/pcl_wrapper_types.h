@@ -65,8 +65,8 @@ struct EIGEN_ALIGN16 _RichPoint
 		float data_u1[4];
 		struct
 		{
-			int is_heavy;
-			int heading;
+			int speed;
+			int head;
 			float lon;
 			float lat;
 		};
@@ -89,7 +89,7 @@ struct EIGEN_ALIGN16 RichPoint : public _RichPoint
 
 		density = car_id = 0.0f;
         
-        is_heavy = heading = 0;
+        speed = head = 0;
         
         lon = lat = 0.0f;
 	}
@@ -111,8 +111,8 @@ struct EIGEN_ALIGN16 RichPoint : public _RichPoint
 		density = p.density;
 		car_id = p.car_id;
         
-        is_heavy = p.is_heavy;
-        heading = p.heading;
+        speed = p.speed;
+        head = p.head;
         lon = p.lon;
         lat = p.lat;
 	}
@@ -154,8 +154,8 @@ inline std::ostream& operator << (std::ostream& os, const RichPoint& p)
 		<< " - " << p.id_trajectory << "," << p.id_sample
 		<< " - " << p.density
 		<< " - " << p.car_id
-        << " - " << p.is_heavy
-        << " - " << p.heading
+        << " - " << p.speed
+        << " - " << p.head
         << " - " << p.lon
         << " - " << p.lat
 		<< ")";
@@ -176,8 +176,8 @@ POINT_CLOUD_REGISTER_POINT_STRUCT(RichPoint,
 								  (int, id_sample, id_sample)
 								  (float, density, density)
 								  (float, car_id, car_id)
-                                  (int, is_heavy, is_heavy)
-                                  (int, heading, heading)
+                                  (int, speed, speed)
+                                  (int, head, head)
                                   (float, lon, lon)
                                   (float, lat, lat)
 								  )
