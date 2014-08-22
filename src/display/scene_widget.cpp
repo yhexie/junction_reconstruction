@@ -25,6 +25,7 @@ SceneWidget::SceneWidget(QWidget * parent, const QGLWidget * shareWidget, Qt::Wi
     bound_box_ = QVector4D(1e10, -1e10, 1e10, -1e10);
     
     trajectories_ = new Trajectories(this);
+    sample_selection_mode = false;
     osmMap_ = new OpenStreetMap(this);
     selection_mode_ = false;
     
@@ -38,6 +39,8 @@ SceneWidget::SceneWidget(QWidget * parent, const QGLWidget * shareWidget, Qt::Wi
     right_click_menu_->addAction("Save trajectories", this, SLOT(slotSaveTrajectories()));
     right_click_menu_->addSeparator();
     right_click_menu_->addAction("Open OSM", this, SLOT(slotOpenOsmMap()));
+    
+    show_map_ = true;
 }
 
 SceneWidget::~SceneWidget()
@@ -51,6 +54,13 @@ SceneWidget::~SceneWidget()
 void SceneWidget::toggleSelectionMode(){
     selection_mode_ = !selection_mode_;
     trajectories_->setSelectionMode(selection_mode_);
+    updateGL();
+}
+
+void SceneWidget::enableSelectionMode(){
+    selection_mode_ = true;
+    trajectories_->setSelectionMode(selection_mode_);
+    updateGL();
 }
 
 static void qNormalizeAngle(int &angle)
@@ -65,35 +75,40 @@ void SceneWidget::mousePressEvent(QMouseEvent *event)
 {
     lastPos = event->pos();
     if (event->button() == Qt::LeftButton) {
-        if (selection_mode_){
-            
-            float tx = static_cast<float>(event->x()) / width()*2 - 1;
-            float ty = -1*static_cast<float>(event->y()) / height()*2 + 1;
-            
-            QVector3D near_point = view_matrix_.inverted().map(QVector3D(tx, ty, 0.0));
-            QVector3D far_point = view_matrix_.inverted().map(QVector3D(tx, ty, 1.0));
-            
-            CgalLine line = CgalLine(Vec3Caster<QVector3D, CgalPoint>(near_point), Vec3Caster<QVector3D, CgalPoint>(far_point));
-            
-            CgalPlane plane = CgalPlane(CgalPoint(0,0,0), CgalVector(0,0,1));
-            
-            CGAL::Object intersection = CGAL::intersection(line, plane);
-            if (const CgalPoint *intersection_point = CGAL::object_cast<CgalPoint>(&intersection)){
-                if(fabs(intersection_point->x()) > 1.0 || fabs(intersection_point->y()) > 1.0){
-                    return;
-                }
-                
-                float center_x = 0.5*bound_box_[0] + 0.5*bound_box_[1];
-                float center_y = 0.5*bound_box_[2] + 0.5*bound_box_[3];
-                float delta_x = bound_box_[1] - bound_box_[0];
-                float delta_y = bound_box_[3] - bound_box_[2];
-                float scale_factor_ = (delta_x > delta_y) ? 0.5*delta_x : 0.5*delta_y;
-                
-                float intersect_x = center_x + intersection_point->x()*scale_factor_;
-                float intersect_y = center_y + intersection_point->y()*scale_factor_;
-                trajectories_->selectNearLocation(intersect_x, intersect_y);
-                updateGL();
+        float tx = static_cast<float>(event->x()) / width()*2 - 1;
+        float ty = -1*static_cast<float>(event->y()) / height()*2 + 1;
+        
+        QVector3D near_point = view_matrix_.inverted().map(QVector3D(tx, ty, 0.0));
+        QVector3D far_point = view_matrix_.inverted().map(QVector3D(tx, ty, 1.0));
+        
+        CgalLine line = CgalLine(Vec3Caster<QVector3D, CgalPoint>(near_point), Vec3Caster<QVector3D, CgalPoint>(far_point));
+        
+        CgalPlane plane = CgalPlane(CgalPoint(0,0,0), CgalVector(0,0,1));
+        
+        CGAL::Object intersection = CGAL::intersection(line, plane);
+        if (const CgalPoint *intersection_point = CGAL::object_cast<CgalPoint>(&intersection)){
+            if(fabs(intersection_point->x()) > 1.0 || fabs(intersection_point->y()) > 1.0){
+                return;
             }
+            
+            float center_x = 0.5*bound_box_[0] + 0.5*bound_box_[1];
+            float center_y = 0.5*bound_box_[2] + 0.5*bound_box_[3];
+            float delta_x = bound_box_[1] - bound_box_[0];
+            float delta_y = bound_box_[3] - bound_box_[2];
+            float scale_factor_ = (delta_x > delta_y) ? 0.5*delta_x : 0.5*delta_y;
+            
+            float intersect_x = center_x + intersection_point->x()*scale_factor_;
+            float intersect_y = center_y + intersection_point->y()*scale_factor_;
+            if(sample_selection_mode){
+                trajectories_->pickAnotherSampleNear(intersect_x, intersect_y);
+                sample_selection_mode = false;
+            }
+            else{
+                if (selection_mode_){
+                    trajectories_->selectNearLocation(intersect_x, intersect_y);
+                }
+            }
+            updateGL();
         }
     }
 }
@@ -204,7 +219,9 @@ void SceneWidget::paintGL(){
     //view_matrix_.rotate(-xRot/16.0, 0.0, 0.0, 1.0);
     //view_matrix_.rotate(-yRot/16.0, 1.0, 0.0, 0.0);
     m_program_->setUniformMatrix(view_matrix_);
-    osmMap_->draw();
+    if (show_map_){
+        osmMap_->draw();
+    }
     trajectories_->draw();
     
     // Draw Axis at the bottom left corner
@@ -215,7 +232,7 @@ void SceneWidget::paintGL(){
         return;
     }
     float delta = (delta_x > delta_y) ? delta_x : delta_y;
-    float axis_length = 200.0f / delta * scaleFactor_;
+    float axis_length = 100.0f / delta ;
     
     QVector3D near_point = view_matrix_.inverted().map(QVector3D(-0.8, -0.8, 0.0));
     QVector3D far_point = view_matrix_.inverted().map(QVector3D(-0.8, -0.8, 1.0));
@@ -327,7 +344,7 @@ void SceneWidget::slotOpenTrajectories(void)
 	{
         updateSceneBoundary(trajectories_->BoundBox());
         updateGL();
-        emit trajFileLoaded(filename);
+        emit trajFileLoaded(filename, trajectories_->getNumTraj(), trajectories_->getNumPoint());
 	}
     
 	return;
@@ -359,6 +376,12 @@ void SceneWidget::slotSaveTrajectories(void)
     
 	return;
 }
+
+void SceneWidget::drawSelectedTraj(vector<int> &idx){
+    trajectories_->setSelectedTrajectories(idx);
+    enableSelectionMode();
+}
+
 
 void SceneWidget::slotOpenOsmMap(void)
 {
@@ -392,6 +415,14 @@ void SceneWidget::slotOpenOsmMapFromFile(const QString &filename){
 	}
 }
 
+void SceneWidget::slotSetShowMap(int state){
+    if (state == Qt::Unchecked)
+        show_map_ = false;
+    else
+        show_map_ = true;
+    updateGL();
+}
+
 void SceneWidget::toggleTrajectories(void)
 {
     trajectories_->toggleRenderMode();
@@ -399,25 +430,36 @@ void SceneWidget::toggleTrajectories(void)
 	return;
 }
 
-void SceneWidget::slotColorizeUniform(void)
-{
-	//trajectories_->setColorMode(UNIFORM);
-    
-	return;
+void SceneWidget::slotSamplePointCloud(void){
+    if (trajectories_->isEmpty()){
+        QMessageBox msgBox;
+        msgBox.setText("Please load trajectory file first.");
+        msgBox.exec();
+        return;
+    }
+    bool ok;
+    double d = QInputDialog::getDouble(this, tr("Set Sampling Parameter"), tr("Neighborhood Size (in meters):"), 50.0, 1.0, 250.0, 1, &ok);
+    if (ok) {
+        trajectories_->samplePointCloud(static_cast<float>(d));
+        trajectories_->prepareForVisualization(bound_box_);
+        updateGL();
+    }
 }
 
-void SceneWidget::slotColorizeSampleTime(void)
-{
-	//trajectories_->setColorMode(SAMPLE_TIME);
-    
-	return;
-}
-
-void SceneWidget::slotColorizeSampleOrder(void)
-{
-	//trajectories_->setColorMode(SAMPLE_ORDER);
-    
-	return;
+void SceneWidget::slotGenerateSegments(void){
+    if (trajectories_->isEmpty()){
+        QMessageBox msgBox;
+        msgBox.setText("Please load trajectory file first.");
+        msgBox.exec();
+        return;
+    }
+    bool ok;
+    double d = QInputDialog::getDouble(this, tr("Set Segment Parameter"), tr("Segment extension (in meters):"), 100.0, 1.0, 250.0, 1, &ok);
+    if (ok) {
+        trajectories_->computeSegments(static_cast<float>(d));
+        //trajectories_->prepareForVisualization(bound_box_);
+        //updateGL();
+    }
 }
 
 void SceneWidget::resetView(void){
@@ -479,3 +521,38 @@ void SceneWidget::slotExtractTrajectories(void){
 //
 //	return;
 //}
+
+void SceneWidget::slotEnterSampleSelectionMode(void){
+    sample_selection_mode = true;
+}
+
+void SceneWidget::slotClearPickedSamples(void){
+    trajectories_->clearPickedSamples();
+    updateGL();
+}
+
+void SceneWidget::slotToggleSegmentsAtPickedSamples(void){
+    if (trajectories_->samples()->size() == 0){
+        QMessageBox msgBox;
+        msgBox.setText("Please do sampling first.");
+        msgBox.exec();
+        return;
+    }
+   
+    if (trajectories_->nSegments() == 0){
+        QMessageBox msgBox;
+        msgBox.setText("Please compute segments first.");
+        msgBox.exec();
+        return;
+    }
+    
+    bool ok;
+    double d = QInputDialog::getDouble(this, tr("Searching range"), tr("Segment extension (in meters):"), 10.0, 1.0, 250.0, 1, &ok);
+    trajectories_->toggleDrawSegmentNearSelectedSamples();
+    if (ok) {
+        if (trajectories_->drawSegment()){
+            trajectories_->selectSegmentsWithSearchRange(static_cast<float>(d));
+        }
+    }
+    updateGL();
+}

@@ -6,11 +6,27 @@
 
 #include <QMutex>
 #include <QMainWindow>
+#include <QAbstractListModel>
 
 #include "ui_main_window.h"
 
 class SceneWidget;
 class QFileSystemModel;
+
+class TrajListModel : public QAbstractListModel{
+    Q_OBJECT
+public:
+    TrajListModel(QObject *parent = 0);
+    
+    int rowCount(const QModelIndex &parent = QModelIndex()) const;
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const;
+
+    public slots:
+    void setNumTraj(int number);
+    
+private:
+    int trajCount;
+};
 
 class MainWindow : public QMainWindow
 {
@@ -31,6 +47,7 @@ public:
     
     public slots:
 	bool slotShowYesNoMessageBox(const std::string& text, const std::string& informative_text);
+    void slotTrajSelectionChanged();
     
 signals:
     void keyDownPressed(void);
@@ -38,6 +55,7 @@ signals:
 	void showStatusRequested(const QString& status, int timeout);
     void newOsmFileSelected(const QString &filename);
     void newTrajFileSelected(const QString &filename);
+    void trajNumberChanged(int number);
     
 protected:
     virtual void closeEvent(QCloseEvent *event);
@@ -50,8 +68,7 @@ private slots:
 	void slotShowInformation(const QString& information);
 	void slotShowStatus(const QString& status, int timeout);
     void slotOsmDirSelected(QModelIndex index);
-    void slotTrajDirSelected(QModelIndex index);
-    void slotTrajFileLoaded(QString &filename);
+    void slotTrajFileLoaded(QString &filename, const size_t &numTraj, const size_t &numPoint);
     void slotOsmFileLoaded(QString &filename);
     
 private:
@@ -60,7 +77,7 @@ private:
     void saveStatusLog();
     
     QFileSystemModel                *osmFileModel;
-    QFileSystemModel                *trajFileModel;
+    TrajListModel                   *trajListModel;
     Ui::MainWindowClass             *ui_;
     std::string                     workspace_;
 };

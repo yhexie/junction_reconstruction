@@ -13,6 +13,7 @@ using namespace std;
 
 class QMenu;
 class Trajectories;
+class Samples;
 class OpenStreetMap;
 
 class SceneWidget : public QGLWidget
@@ -25,25 +26,34 @@ public:
     
     QSize sizeHint() const {return QSize(256, 256);}
     void toggleSelectionMode();
+    void enableSelectionMode();
     bool getSelectionMode() { return selection_mode_;}
     void toggleTrajectories(void);
+    void drawSelectedTraj(vector<int> &idx);
     
 signals:
-    void trajFileLoaded(QString &filename);
+    void trajFileLoaded(QString &filename, const size_t &numTraj, const size_t &numPoint);
     void osmFileLoaded(QString &filename);
     
     public slots:
     void slotOpenTrajectories(void);
     void slotOpenTrajectoriesFromFile(const QString &filename);
     void slotSaveTrajectories(void);
+    
     void slotOpenOsmMap(void);
     void slotOpenOsmMapFromFile(const QString &filename);
-    void slotColorizeUniform(void);
-    void slotColorizeSampleTime(void);
-    void slotColorizeSampleOrder(void);
+    void slotSetShowMap(int state);
+    
+    void slotSamplePointCloud(void);
+    void slotGenerateSegments(void);
     void resetView(void);
     void clearData(void);
     void slotExtractTrajectories(void);
+    
+    void slotEnterSampleSelectionMode(void);
+    void slotClearPickedSamples(void);
+    
+    void slotToggleSegmentsAtPickedSamples(void);
     //void slotOpenOsmFile(QModelIndex index);
     
 protected:
@@ -81,9 +91,11 @@ private:
     
     // Trajectory container
     Trajectories                        *trajectories_;
+    bool                                sample_selection_mode;
     
     // OpenStreetMap container
     OpenStreetMap                       *osmMap_;
+    bool                                show_map_;
     
     // Visualization mode
     bool                                selection_mode_;

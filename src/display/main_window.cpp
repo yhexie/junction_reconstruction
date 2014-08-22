@@ -13,6 +13,28 @@
 #include "main_window.h"
 #include <QDebug>
 
+TrajListModel::TrajListModel(QObject *parent) : QAbstractListModel(parent){
+    trajCount = 0;
+}
+
+int TrajListModel::rowCount(const QModelIndex & /* parent */) const{
+    return trajCount;
+}
+
+void TrajListModel::setNumTraj(int number){
+    beginResetModel();
+    trajCount = number;
+    endResetModel();
+}
+
+QVariant TrajListModel::data(const QModelIndex &index, int role) const{
+    if ( role == Qt::DisplayRole ) {
+        return index.row();
+    }
+
+    return QVariant();
+}
+
 MainWindow::MainWindow(QWidget *parent):
 QMainWindow(parent), ui_(new Ui::MainWindowClass), workspace_(".")
 {
@@ -27,7 +49,7 @@ MainWindow::~MainWindow()
 {
     delete ui_;
     delete osmFileModel;
-    delete trajFileModel;
+    delete trajListModel;
     saveSettings();
     return;
 }
@@ -56,18 +78,6 @@ void MainWindow::slotOsmDirSelected(QModelIndex index){
     // Check file extension
     if (osmFileModel->fileInfo(index).fileName().endsWith(".osm")) {
         emit newOsmFileSelected(osmFileModel->filePath(index));
-    }
-}
-
-void MainWindow::slotTrajDirSelected(QModelIndex index){
-    if (trajFileModel->isDir(index)) {
-        ui_->trajDirView->setRootIndex(trajFileModel->setRootPath(trajFileModel->fileInfo(index).absoluteFilePath()));
-        return;
-    }
-    
-    // Check file extension
-    if (trajFileModel->fileName(index).endsWith(".txt") || trajFileModel->fileName(index).endsWith(".pbf")) {
-        emit newTrajFileSelected(trajFileModel->filePath(index));
     }
 }
 
@@ -131,7 +141,6 @@ void MainWindow::init(void)
     connect(this, SIGNAL(showInformationRequested(const QString&)), this, SLOT(slotShowInformation(const QString&)));
     connect(ui_->actionOpenTrajectories, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotOpenTrajectories()));
     connect(ui_->actionOpenOsmMap, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotOpenOsmMap()));
-    connect(ui_->actionExtractTrajectory, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotExtractTrajectories()));
 
     loadSettings();
     
@@ -143,31 +152,36 @@ void MainWindow::init(void)
     // Visualization
     
 	// Tools
+    connect(ui_->actionExtractTrajectory, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotExtractTrajectories()));
+    connect(ui_->actionSamplePointCloud, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotSamplePointCloud()));
+    connect(ui_->actionGenerateSegments, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotGenerateSegments()));
+    connect(ui_->actionPickSample, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotEnterSampleSelectionMode()));
+    connect(ui_->actionClearPickedSamples, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotClearPickedSamples()));
+    connect(ui_->actionToggleSegmentsAtSample, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotToggleSegmentsAtPickedSamples()));
     
     // Directory View
     osmFileModel = new QFileSystemModel(this);
-    trajFileModel = new QFileSystemModel(this);
     osmFileModel->setFilter(QDir::Files | QDir::AllDirs | QDir::NoDot);
-    trajFileModel->setFilter(QDir::Files | QDir::AllDirs | QDir::NoDot);
     
     ui_->osmDirView->setModel(osmFileModel);
     ui_->osmDirView->setColumnWidth(0, 200);
     ui_->osmDirView->hideColumn(2);
     ui_->osmDirView->hideColumn(3);
     ui_->osmDirView->setRootIndex(osmFileModel->setRootPath(QDir::currentPath()));
+    
+    connect(ui_->showMapCheckBox, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotSetShowMap(int)));
     connect(this, SIGNAL(newOsmFileSelected(const QString &)), ui_->scene_widget, SLOT(slotOpenOsmMapFromFile(const QString &)));
     connect(ui_->scene_widget, SIGNAL(osmFileLoaded(QString &)), this, SLOT(slotOsmFileLoaded(QString &)));
     
-    ui_->trajDirView->setModel(trajFileModel);
-    ui_->trajDirView->setColumnWidth(0, 200);
-    ui_->trajDirView->hideColumn(2);
-    ui_->trajDirView->hideColumn(3);
-    ui_->trajDirView->setRootIndex(trajFileModel->setRootPath(QDir::currentPath()));
-    
     connect(ui_->osmDirView, SIGNAL(doubleClicked(QModelIndex)), this, SLOT(slotOsmDirSelected(QModelIndex)));
-    connect(ui_->trajDirView, SIGNAL(doubleClicked(QModelIndex)), this, SLOT(slotTrajDirSelected(QModelIndex)));
-    connect(ui_->scene_widget, SIGNAL(trajFileLoaded(QString &)), this, SLOT(slotTrajFileLoaded(QString &)));
-    connect(this, SIGNAL(newTrajFileSelected(const QString &)), ui_->scene_widget, SLOT(slotOpenTrajectoriesFromFile(const QString &)));
+    
+    // Trajectory View
+    trajListModel = new TrajListModel(this);
+    ui_->trajListView->setSelectionMode( QAbstractItemView::ExtendedSelection);
+    ui_->trajListView->setModel(trajListModel);
+    connect(ui_->scene_widget, SIGNAL(trajFileLoaded(QString &, const size_t &, const size_t &)), this, SLOT(slotTrajFileLoaded(QString &, const size_t &, const size_t &)));
+    connect(this, SIGNAL(trajNumberChanged(int)), trajListModel, SLOT(setNumTraj(int)));
+    connect(ui_->trajListView->selectionModel(), SIGNAL(selectionChanged(QItemSelection, QItemSelection)), this, SLOT(slotTrajSelectionChanged()));
     
     return;
 }
@@ -215,12 +229,26 @@ bool MainWindow::slotShowYesNoMessageBox(const std::string& text, const std::str
 	return (ret == QMessageBox::Yes);
 }
 
-void MainWindow::slotTrajFileLoaded(QString &filename){
-    ui_->trajDirView->setRootIndex(trajFileModel->setRootPath(QFileInfo(filename).absoluteDir().absolutePath()));
-    ui_->trajDirView->setCurrentIndex(trajFileModel->index(filename));
+void MainWindow::slotTrajFileLoaded(QString &filename, const size_t &numTraj, const size_t &numPoint){
+    QString str;
+    QTextStream(&str) << numTraj << " trajectories, " << numPoint <<" points.";
+    ui_->trajInfo->setText(str);
+    emit trajNumberChanged(numTraj);
 }
 
 void MainWindow::slotOsmFileLoaded(QString &filename){
     ui_->osmDirView->setRootIndex(osmFileModel->setRootPath(QFileInfo(filename).absoluteDir().absolutePath()));
     ui_->osmDirView->setCurrentIndex(osmFileModel->index(filename));
+}
+
+void MainWindow::slotTrajSelectionChanged(){
+    QModelIndexList selectedRows = ui_->trajListView->selectionModel()->selectedRows();
+    vector<int> selectedTrajIdx(selectedRows.size());
+   
+    for (int i = 0; i < selectedRows.size(); ++i) {
+        QModelIndex idx = selectedRows.at(i);
+        selectedTrajIdx[i] = idx.row();
+    }
+    ui_->scene_widget->drawSelectedTraj(selectedTrajIdx);
+    ui_->statusBar->showMessage("Selection Mode : ON");
 }

@@ -8,6 +8,7 @@
 struct Color{
     float r, g, b, alpha;
     Color(float vr, float vg, float vb, float valpha) : r(vr), g(vg), b(vb), alpha(valpha){}
+    Color(){ r = 0.0f; g = 0.0f; b = 0.0f; alpha = 0.0f;}
 };
 
 class ColorMap {

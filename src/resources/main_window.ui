@@ -122,7 +122,7 @@
           </font>
          </property>
          <property name="title">
-          <string>Trajectory</string>
+          <string>Trajectories</string>
          </property>
          <layout class="QVBoxLayout" name="verticalLayout_3">
           <property name="leftMargin">
@@ -138,7 +138,20 @@
            <number>0</number>
           </property>
           <item>
-           <widget class="QTreeView" name="trajDirView">
+           <widget class="QLabel" name="trajInfo">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="text">
+             <string>No trajectories has been loaded yet.</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QListView" name="trajListView">
             <property name="sizePolicy">
              <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
               <horstretch>0</horstretch>
@@ -161,6 +174,12 @@
         <verstretch>0</verstretch>
        </sizepolicy>
       </property>
+      <property name="layoutDirection">
+       <enum>Qt::LeftToRight</enum>
+      </property>
+      <property name="autoFillBackground">
+       <bool>false</bool>
+      </property>
      </widget>
     </item>
    </layout>
@@ -178,7 +197,7 @@
     <bool>false</bool>
    </property>
    <property name="nativeMenuBar">
-    <bool>false</bool>
+    <bool>true</bool>
    </property>
    <widget class="QMenu" name="menuFile">
     <property name="title">
@@ -191,21 +210,18 @@
     <addaction name="separator"/>
     <addaction name="actionOpenOsmMap"/>
    </widget>
-   <widget class="QMenu" name="menuVisualization">
-    <property name="title">
-     <string>Visualization</string>
-    </property>
-    <addaction name="actionToggleTrajectories"/>
-    <addaction name="separator"/>
-    <addaction name="actionColorizeUniform"/>
-    <addaction name="actionColorizeSampleTime"/>
-    <addaction name="actionColorizeSampleOrder"/>
-   </widget>
    <widget class="QMenu" name="menuTools">
     <property name="title">
      <string>Tools</string>
     </property>
     <addaction name="actionExtractTrajectory"/>
+    <addaction name="separator"/>
+    <addaction name="actionSamplePointCloud"/>
+    <addaction name="actionPickSample"/>
+    <addaction name="actionClearPickedSamples"/>
+    <addaction name="separator"/>
+    <addaction name="actionGenerateSegments"/>
+    <addaction name="actionToggleSegmentsAtSample"/>
    </widget>
    <widget class="QMenu" name="menuAlgorithms">
     <property name="title">
@@ -215,10 +231,36 @@
    </widget>
    <addaction name="menuFile"/>
    <addaction name="menuAlgorithms"/>
-   <addaction name="menuVisualization"/>
    <addaction name="menuTools"/>
   </widget>
   <widget class="QStatusBar" name="statusBar"/>
+  <widget class="QToolBar" name="toolBar">
+   <property name="windowTitle">
+    <string>toolBar</string>
+   </property>
+   <property name="layoutDirection">
+    <enum>Qt::LeftToRight</enum>
+   </property>
+   <property name="autoFillBackground">
+    <bool>true</bool>
+   </property>
+   <attribute name="toolBarArea">
+    <enum>TopToolBarArea</enum>
+   </attribute>
+   <attribute name="toolBarBreak">
+    <bool>true</bool>
+   </attribute>
+   <addaction name="actionOpenTrajectories"/>
+   <addaction name="actionOpenOsmMap"/>
+   <addaction name="actionExtractTrajectory"/>
+   <addaction name="separator"/>
+   <addaction name="actionSamplePointCloud"/>
+   <addaction name="actionPickSample"/>
+   <addaction name="actionClearPickedSamples"/>
+   <addaction name="separator"/>
+   <addaction name="actionGenerateSegments"/>
+   <addaction name="actionToggleSegmentsAtSample"/>
+  </widget>
   <action name="actionSetWorkspace">
    <property name="text">
     <string>Set Workspace</string>
@@ -272,6 +314,31 @@
   <action name="actionExtractTrajectory">
    <property name="text">
     <string>Extract Trajectory</string>
+   </property>
+  </action>
+  <action name="actionSamplePointCloud">
+   <property name="text">
+    <string>Sample Point Cloud</string>
+   </property>
+  </action>
+  <action name="actionGenerateSegments">
+   <property name="text">
+    <string>Compute Segments</string>
+   </property>
+  </action>
+  <action name="actionPickSample">
+   <property name="text">
+    <string>Pick a Sample</string>
+   </property>
+  </action>
+  <action name="actionClearPickedSamples">
+   <property name="text">
+    <string>Clear Picked Samples</string>
+   </property>
+  </action>
+  <action name="actionToggleSegmentsAtSample">
+   <property name="text">
+    <string>Toggle Segments at Sample</string>
    </property>
   </action>
  </widget>

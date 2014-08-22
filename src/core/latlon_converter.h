@@ -7,6 +7,9 @@ using namespace std;
 
 static const char *BJ_DST_PROJ = "+proj=utm +zone=50 +south=False +ellps=WGS84";
 static const char *BJ_SRC_PROJ = "+proj=latlon +ellps=WGS84";
+static const double BJ_X_OFFSET = 440000;
+static const double BJ_Y_OFFSET = 4400000;
+static const double UTC_OFFSET = 1241100000;
 
 class Projector{
 public:

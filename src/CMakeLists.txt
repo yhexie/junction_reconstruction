@@ -43,8 +43,10 @@ find_package(Qt5Xml REQUIRED)
 find_package(Qt5Concurrent REQUIRED)
 find_package(OpenGL REQUIRED)
     # Set Qt files and resources here
-set(uis       resources/main_window.ui)
-set(resources  resources/main_window.qrc)
+file(GLOB uis resources/*.ui)
+file(GLOB resources resources/*.qrc)
+#set(uis       resources/main_window.ui)
+#set(resources  resources/main_window.qrc)
 QT5_WRAP_UI(ui_srcs ${uis})
 QT5_ADD_RESOURCES(resource_srcs ${resources})
 

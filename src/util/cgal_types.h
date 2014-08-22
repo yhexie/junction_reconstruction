@@ -11,6 +11,7 @@ typedef Kernel::Vector_3            CgalVector;
 typedef Kernel::Line_3              CgalLine;
 typedef Kernel::Plane_3             CgalPlane;
 typedef Kernel::Segment_3           CgalSegment;
+typedef Kernel::Segment_2           CgalSegment2;
 typedef Kernel::Direction_3         CgalDirection;
 typedef Kernel::Sphere_3			CgalSphere;
 typedef Kernel::Circle_3			CgalCircle;

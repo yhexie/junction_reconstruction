@@ -15,12 +15,19 @@
 
 #include "latlon_converter.h"
 
-const float search_distance = 250.0f; // in meters
-const float arrow_size = 50.0f;   // in meters
-const int arrow_angle = 15; // in degrees
-const float select_traj_z_value = 0.01;
+static const float search_distance = 250.0f; // in meters
+static const float arrow_size = 50.0f;   // in meters
+static const int arrow_angle = 15; // in degrees
+static const float select_traj_z_value = 0.01;
 
-Trajectories::Trajectories(QObject *parent) : Renderable(parent), data_(new PclPointCloud), tree_(new pcl::search::FlannSearch<PclPoint>(false))
+static const float SPEED_FILTER = 2.5; // meters per second
+
+static const float Z_TRAJECTORIES = -1.0f;
+static const float Z_SAMPLES      = -0.5f;
+static const float Z_SELECTED_SAMPLES = 0.0f;
+static const float Z_SEGMENTS     = -0.4f;
+
+Trajectories::Trajectories(QObject *parent) : Renderable(parent), data_(new PclPointCloud), tree_(new pcl::search::FlannSearch<PclPoint>(false)), sample_point_size_(10.0f), sample_color_(Color(0.0f, 0.3f, 0.6f, 1.0f)),samples_(new PclPointCloud), sample_tree_(new pcl::search::FlannSearch<PclPoint>(false))
 {
     bound_box_ = QVector4D(1e10, -1e10, 1e10, -1e10);
     point_size_ = 5.0f;
@@ -34,6 +41,18 @@ Trajectories::Trajectories(QObject *parent) : Renderable(parent), data_(new PclP
     normalized_vertices_.clear();
     vertex_colors_const_.clear();
     vertex_colors_individual_.clear();
+    
+    // Samples
+    samples_->clear();
+    picked_sample_idxs_.clear();
+    normalized_sample_locs_.clear();
+    sample_vertex_colors_.clear();
+    
+    // Segments
+    segments_.clear();
+    segments_to_draw_.clear();
+    draw_segment_near_selected_samples_ = false;
+    search_range_ = 0.0f;
 }
 
 Trajectories::~Trajectories(){
@@ -91,6 +110,79 @@ void Trajectories::draw(){
     }else{
         selected_trajectories_.clear();
     }
+    
+    // Draw samples
+    if (samples_->size() == 0) {
+        return;
+    }
+  
+    vertexPositionBuffer_.create();
+    vertexPositionBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
+    vertexPositionBuffer_.bind();
+    vertexPositionBuffer_.allocate(&normalized_sample_locs_[0], 3*normalized_sample_locs_.size()*sizeof(float));
+    shadder_program_->setupPositionAttributes();
+    
+    vertexColorBuffer_.create();
+    vertexColorBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
+    vertexColorBuffer_.bind();
+    vertexColorBuffer_.allocate(&sample_vertex_colors_[0], 4*sample_vertex_colors_.size()*sizeof(float));
+    shadder_program_->setupColorAttributes();
+    
+    glPointSize(sample_point_size_);
+    glDrawArrays(GL_POINTS, 0, normalized_sample_locs_.size());
+    
+    // Draw picked samples
+    if (picked_sample_idxs_.size() > 0) {
+        vector<Vertex> picked_sample_locs;
+        vector<Color> picked_sample_colors;
+        for (size_t i = 0; i < picked_sample_idxs_.size(); ++i) {
+            int sample_id = picked_sample_idxs_[i];
+            Vertex &n_sample_loc = normalized_sample_locs_[sample_id];
+            picked_sample_locs.push_back(Vertex(n_sample_loc.x, n_sample_loc.y, Z_SELECTED_SAMPLES));
+            picked_sample_colors.push_back(Color(1.0, 0.0, 0.0, 1.0));
+        }
+        vertexPositionBuffer_.create();
+        vertexPositionBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
+        vertexPositionBuffer_.bind();
+        vertexPositionBuffer_.allocate(&picked_sample_locs[0], 3*picked_sample_locs.size()*sizeof(float));
+        shadder_program_->setupPositionAttributes();
+        
+        vertexColorBuffer_.create();
+        vertexColorBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
+        vertexColorBuffer_.bind();
+        vertexColorBuffer_.allocate(&picked_sample_colors[0], 4*picked_sample_colors.size()*sizeof(float));
+        shadder_program_->setupColorAttributes();
+        
+        glPointSize(1.5*sample_point_size_);
+        glDrawArrays(GL_POINTS, 0, picked_sample_locs.size());
+    }
+    
+    // Draw segments near selected samples
+    if (draw_segment_near_selected_samples_) {
+        vertexPositionBuffer_.create();
+        vertexPositionBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
+        vertexPositionBuffer_.bind();
+        vertexPositionBuffer_.allocate(&segment_vertices_[0], 3*segment_vertices_.size()*sizeof(float));
+        shadder_program_->setupPositionAttributes();
+        
+        vertexColorBuffer_.create();
+        vertexColorBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
+        vertexColorBuffer_.bind();
+        vertexColorBuffer_.allocate(&segment_colors_[0], 4*segment_colors_.size()*sizeof(float));
+        shadder_program_->setupColorAttributes();
+        
+        for (int i=0; i < segment_idxs_.size(); ++i) {
+            QOpenGLBuffer element_buffer(QOpenGLBuffer::IndexBuffer);
+            element_buffer.create();
+            element_buffer.setUsagePattern(QOpenGLBuffer::StaticDraw);
+            element_buffer.bind();
+            element_buffer.allocate(&(segment_idxs_[i][0]), segment_idxs_[i].size()*sizeof(size_t));
+            glLineWidth(line_width_);
+            glDrawElements(GL_LINE_STRIP, segment_idxs_[i].size(), GL_UNSIGNED_INT, 0);
+            glPointSize(point_size_);
+            glDrawElements(GL_POINTS, segment_idxs_[i].size(), GL_UNSIGNED_INT, 0);
+        }
+    }
 }
 
 void Trajectories::prepareForVisualization(QVector4D bound_box){
@@ -108,7 +200,7 @@ void Trajectories::prepareForVisualization(QVector4D bound_box){
         const PclPoint &point = data_->at(i);
         float n_x = (point.x - center_x) / scale_factor_;
         float n_y = (point.y - center_y) / scale_factor_;
-        normalized_vertices_.push_back(Vertex(n_x, n_y, 0.0));
+        normalized_vertices_.push_back(Vertex(n_x, n_y, Z_TRAJECTORIES));
     }
     Color dark_gray = ColorMap::getInstance().getNamedColor(ColorMap::DARK_GRAY);
     vertex_colors_const_.resize(normalized_vertices_.size(), dark_gray);
@@ -122,6 +214,24 @@ void Trajectories::prepareForVisualization(QVector4D bound_box){
             vertex_colors_individual_[vertex_idx].g = traj_color.g;
             vertex_colors_individual_[vertex_idx].b = traj_color.b;
         }
+    }
+    
+    // Prepare for sample visualization
+    if (samples_->size() == 0)
+        return;
+    
+    normalized_sample_locs_.resize(samples_->size());
+    sample_vertex_colors_.resize(samples_->size());
+    
+    for (size_t i = 0; i < samples_->size(); ++i){
+        PclPoint &loc = samples_->at(i);
+        normalized_sample_locs_[i].x = (loc.x - center_x) / scale_factor_;
+        normalized_sample_locs_[i].y = (loc.y - center_y) / scale_factor_;
+        normalized_sample_locs_[i].z = Z_SAMPLES;
+        sample_vertex_colors_[i].r = sample_color_.r;
+        sample_vertex_colors_[i].g = sample_color_.g;
+        sample_vertex_colors_[i].b = sample_color_.b;
+        sample_vertex_colors_[i].alpha = sample_color_.alpha;
     }
 }
 
@@ -155,6 +265,9 @@ bool Trajectories::loadTXT(const string& filename)
 			double x, y, t;
 			int heavy;
 			fin >> x >> y >> t >> heavy;
+            x -= BJ_X_OFFSET;
+            y -= BJ_Y_OFFSET;
+            t -= UTC_OFFSET;
             
             if (x < bound_box_[0]) {
                 bound_box_[0] = x;
@@ -170,7 +283,7 @@ bool Trajectories::loadTXT(const string& filename)
             }
             
 			point.setCoordinate(x, y, 0.0);
-			point.t = t;
+			point.t = static_cast<float>(t);
 			point.id_trajectory = id_trajectory;
 			point.id_sample = id_sample;
             
@@ -297,7 +410,7 @@ bool Trajectories::loadPBF(const string &filename){
                 }
                 
     			point.setCoordinate(x, y, 0.0);
-    			point.t = t;
+    			point.t = t - UTC_OFFSET;
     			point.id_trajectory = id_traj;
     			point.id_sample = pt_idx;
                 point.car_id = new_traj.point(pt_idx).car_id();
@@ -344,6 +457,15 @@ bool Trajectories::load(const string& filename)
 bool Trajectories::save(const string& filename){
     savePBF(filename);
     return true;
+}
+
+bool Trajectories::isEmpty(){
+    if (data_->size() > 0){
+        return false;
+    }
+    else{
+        return true;
+    }
 }
 
 bool Trajectories::savePBF(const string &filename){
@@ -469,16 +591,38 @@ bool Trajectories::extractTrajectoriesFromRegion(QVector4D bound_box, Trajectori
                     // Insert this point
                     extracted_trajectory.push_back(point);
                     if (extracted_trajectory.size() > min_inside_pts + 2) {
-                        container->insertNewTrajectory(extracted_trajectory);
+                        if(isQualifiedTrajectory(extracted_trajectory))
+                            container->insertNewTrajectory(extracted_trajectory);
                     }
                 }
             }
         }
         if (recording){
             if (extracted_trajectory.size() > min_inside_pts + 2) {
-                container->insertNewTrajectory(extracted_trajectory);
+                if (isQualifiedTrajectory(extracted_trajectory))
+                    container->insertNewTrajectory(extracted_trajectory);
             }
         }
+    }
+    return true;
+}
+
+bool Trajectories::isQualifiedTrajectory(vector<PclPoint> &trajectory){
+    // Filter bad trajectories by average speed
+    if (trajectory.size() < 2) {
+        return false;
+    }
+    float length = 0.0f;
+    for (size_t pt_idx = 0; pt_idx < trajectory.size() - 1; ++pt_idx){
+        float delta_x = trajectory[pt_idx+1].x - trajectory[pt_idx].x;
+        float delta_y = trajectory[pt_idx+1].y - trajectory[pt_idx].y;
+        length += sqrt(delta_x*delta_x + delta_y*delta_y);
+    }
+    float delta_t = trajectory[trajectory.size()-1].t - trajectory[0].t;
+    
+    float avg_velocity = length / delta_t;
+    if (avg_velocity < SPEED_FILTER) {
+        return false;
     }
     return true;
 }
@@ -527,14 +671,16 @@ void Trajectories::selectNearLocation(float x, float y, float max_distance){
     if (k_indices.empty())
         return;
     
-    printf("Search point is: %.2f, %.2f\n", x, y);
-    
     PclPoint &selected_point = data_->at(k_indices[0]);
-    printf("\tNearby point: %.2f, %.2f\n", selected_point.x, selected_point.y);
     
     if (sqrt(k_sqr_distances[0]) < search_distance){
-        printf("selected trajectory idx = %d\n", selected_point.id_trajectory);
+        int traj_id = selected_point.id_trajectory;
         selected_trajectories_.push_back(selected_point.id_trajectory);
+        printf("Trajectory %d selected.\n", traj_id);
+        for (size_t pt_idx = 0; pt_idx < trajectories_[traj_id].size(); ++pt_idx) {
+            int pt_idx_in_data = trajectories_[traj_id][pt_idx];
+            printf("t = %.2f, x=%.2f, y=%.2f\n", data_->at(pt_idx_in_data).t, data_->at(pt_idx_in_data).x, data_->at(pt_idx_in_data).y);
+        }
     }
 }
 
@@ -653,6 +799,14 @@ void Trajectories::drawSelectedTrajectories(vector<int> &traj_indices){
     }
 }
 
+void Trajectories::setSelectedTrajectories(vector<int> &selectedIdxs){
+    selected_trajectories_.clear();
+    selected_trajectories_.resize(selectedIdxs.size());
+    for (size_t i = 0; i < selectedIdxs.size(); ++i) {
+        selected_trajectories_[i] = selectedIdxs[i];
+    }
+}
+
 void Trajectories::clearData(void){
     bound_box_ = QVector4D(1e10, -1e10, 1e10, -1e10);
     point_size_ = 5.0f;
@@ -666,4 +820,298 @@ void Trajectories::clearData(void){
     normalized_vertices_.clear();
     vertex_colors_const_.clear();
     vertex_colors_individual_.clear();
+    
+    // Clear samples
+    samples_->clear();
+    picked_sample_idxs_.clear();
+    normalized_sample_locs_.clear();
+    sample_vertex_colors_.clear();
+    
+    // Clear segments
+    segments_.clear();
+    segments_to_draw_.clear();
+    draw_segment_near_selected_samples_ = false;
+    search_range_ = 0.0f;
+    segment_idxs_.clear();
+    segment_vertices_.clear();
+    segment_colors_.clear();
+}
+
+void Trajectories::computeSegments(float extension){
+   /*  Compute segment for each GPS point by extension to both direction.
+        Args:
+            - extension: in meters. For example, extension = 50 will result in extending the point in both direction by at least 50 meters, and the resulting segment will be around 100 meters.
+    */
+    
+    // For each GPS point, compute its segment
+   
+    clock_t begin = clock();
+    segments_.resize(data_->size());
+    for (vector<vector<int>>::iterator traj_itr = trajectories_.begin(); traj_itr != trajectories().end(); ++traj_itr) {
+        vector<int> &traj = *traj_itr;
+        int prev_idx = 0;
+        int nxt_idx = 0;
+        int prev_pt_idx_in_data = -1;
+        float cum_prev_to_current = 0.0f;
+        float cum_current_to_nxt = 0.0f;
+        for (size_t pt_idx = 0; pt_idx < traj.size(); ++pt_idx) {
+            int pt_idx_in_data = traj[pt_idx];
+            if (pt_idx > 0) {
+                float delta_x = data_->at(pt_idx_in_data).x - data_->at(prev_pt_idx_in_data).x;
+                float delta_y = data_->at(pt_idx_in_data).y - data_->at(prev_pt_idx_in_data).y;
+                float delta_dist = sqrt(delta_x*delta_x + delta_y*delta_y);
+                cum_prev_to_current += delta_dist;
+                cum_current_to_nxt -= delta_dist;
+            }
+           
+            // Check if prev_idx needs to move
+            while (cum_prev_to_current > extension && prev_idx < traj.size() - 1) {
+                float delta_x = data_->at(traj[prev_idx+1]).x - data_->at(traj[prev_idx]).x;
+                float delta_y = data_->at(traj[prev_idx+1]).y - data_->at(traj[prev_idx]).y;
+                float delta_dist = sqrt(delta_x*delta_x + delta_y*delta_y);
+                if (cum_prev_to_current - delta_dist > extension) {
+                    ++prev_idx;
+                    cum_prev_to_current -= delta_dist;
+                }
+                else{
+                    break;
+                }
+            }
+            
+            // Check if nxt_idx needs to move
+            while (cum_current_to_nxt < extension && nxt_idx < traj.size() - 1) {
+                float delta_x = data_->at(traj[nxt_idx + 1]).x - data_->at(traj[nxt_idx]).x;
+                float delta_y = data_->at(traj[nxt_idx + 1]).y - data_->at(traj[nxt_idx]).y;
+                float delta_dist = sqrt(delta_x*delta_x + delta_y*delta_y);
+                cum_current_to_nxt += delta_dist;
+                ++nxt_idx;
+                if (cum_current_to_nxt > extension) {
+                    break;
+                }
+            }
+            
+            // Add points from prev_idx to nxt_idx as a new segment
+            Segment &this_segment = segments_[pt_idx_in_data];
+            this_segment.segLength() = cum_prev_to_current + cum_current_to_nxt;
+            //printf("Extracted one segment: from %d to %d, prev_to_cur = %.1f m, cur_to_nxt = %.1f\n", prev_idx, nxt_idx, cum_prev_to_current, cum_current_to_nxt);
+            for (size_t croped_idx = prev_idx; croped_idx <= nxt_idx; ++croped_idx) {
+                PclPoint &this_point = data_->at(traj[croped_idx]);
+                this_segment.points().push_back(SegPoint(this_point.x, this_point.y, this_point.t, traj[croped_idx]));
+            }
+          
+            prev_pt_idx_in_data = pt_idx_in_data;
+        }
+    }
+    clock_t end = clock();
+    double elapsed_secs = double(end - begin) / CLOCKS_PER_SEC;
+    printf("Computing segments Done. Time elapsed: %.1f sec\n", elapsed_secs);
+  
+//    auto highres_begin = chrono::high_resolution_clock::now();
+//    int from = 0;
+//    int to = 1;
+//    float distance;
+//    for (int tmp = 0; tmp < 10000; ++tmp) {
+//        distance = segments_[from].distanceTo(segments_[to]);
+//    }
+//    auto highres_end = chrono::high_resolution_clock::now();
+//    auto duration = chrono::duration_cast<chrono::nanoseconds>(highres_end - highres_begin).count();
+//    printf("Distance from %d to %d is %.2f\n", from, to, distance);
+//    cout<<"ns total: "<<duration << " ns."<<endl;
+    
+//    ofstream test;
+//    test.open("test.txt");
+//    int selected_traj_idx = 0;
+//    test<<trajectories_[selected_traj_idx].size()<<endl;
+//    for (size_t i = 0; i < trajectories_[selected_traj_idx].size(); ++i) {
+//        vector<int> &traj = trajectories_[selected_traj_idx];
+//        test<<data_->at(traj[i]).x<<" "<<data_->at(traj[i]).y<<endl;
+//    }
+//    
+//    for (size_t i = 0; i < trajectories_[selected_traj_idx].size(); ++i) {
+//        vector<int> &traj = trajectories_[selected_traj_idx];
+//        int idx = traj[i];
+//        test<<segments_[idx].points().size()<<endl;
+//        for (size_t j=0; j < segments_[idx].points().size(); ++j ) {
+//            test<<segments_[idx].points()[j].x<<" "<<segments_[idx].points()[j].y<<endl;
+//        }
+//    }
+//    
+//    test.close();
+}
+
+void Trajectories::selectSegmentsWithSearchRange(float range){
+    search_range_ = range;
+    if (!draw_segment_near_selected_samples_)
+        return;
+    
+    if (picked_sample_idxs_.size() == 0){
+        return;
+    }
+    updateSelectedSegments();
+}
+
+void Trajectories::updateSelectedSegments(void){
+    if (picked_sample_idxs_.size() == 0){
+        return;
+    }
+    
+    segments_to_draw_.clear();
+    segment_vertices_.clear();
+    segment_colors_.clear();
+    segment_idxs_.clear();
+    int count = 0;
+    for(vector<int>::iterator it = picked_sample_idxs_.begin(); it != picked_sample_idxs_.end(); ++it){
+        int sample_id = *it;
+        // Search GPS points around the sample point
+        vector<int> k_indices;
+        vector<float> k_distances;
+        tree_->radiusSearch(samples_->at(sample_id), search_range_, k_indices, k_distances);
+        
+        Color seg_color = ColorMap::getInstance().getDiscreteColor(count);
+        for (size_t i = 0; i < k_indices.size(); ++i) {
+            if (i >= 25) {
+                break;
+            }
+            segments_to_draw_.push_back(k_indices[i]);
+            Segment &this_seg = segments_[k_indices[i]];
+            vector<int> idxs;
+            for (int j = 0; j < this_seg.points().size(); ++j) {
+                int orig_idx = this_seg.points()[j].orig_idx;
+                idxs.push_back(segment_vertices_.size());
+                Vertex &orig_vertex = normalized_vertices_[orig_idx];
+                segment_vertices_.push_back(Vertex(orig_vertex.x, orig_vertex.y, Z_SEGMENTS));
+                segment_colors_.push_back(seg_color);
+            }
+            segment_idxs_.push_back(idxs);
+        }
+        ++count;
+    }
+}
+
+void Trajectories::samplePointCloud(float neighborhood_size){
+//        // Search nearby and mark nearby
+//        vector<int> k_indices;
+//        vector<float> k_distances;
+//        tree_->radiusSearch(data_->at(i), 1.0, k_indices, k_distances);
+//        
+//        // Mark neighbors
+//        for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
+//            point_marked[*it] = true;
+    float delta_x = bound_box_[1] - bound_box_[0];
+    float delta_y = bound_box_[3] - bound_box_[2];
+    if (neighborhood_size > delta_x || neighborhood_size > delta_y) {
+        fprintf(stderr, "ERROR: Neighborhood size is bigger than the trajectory boundbox!\n");
+        return;
+    }
+    
+    // Clear samples
+    PclPoint point;
+    samples_->clear();
+    picked_sample_idxs_.clear();
+    
+    normalized_sample_locs_.clear();
+    sample_vertex_colors_.clear();
+    
+    // Compute samples
+    // Initialize the samples using a unified grid
+    vector<Vertex> seed_samples;
+    set<int> grid_idxs;
+    int n_x = static_cast<int>(delta_x / neighborhood_size) + 1;
+    int n_y = static_cast<int>(delta_y / neighborhood_size) + 1;
+    float step_x = delta_x / n_x;
+    float step_y = delta_y / n_y;
+    for (size_t pt_idx = 0; pt_idx < data_->size(); ++pt_idx) {
+        PclPoint &point = data_->at(pt_idx);
+        int pt_i = floor((point.x - bound_box_[0]) / step_x);
+        int pt_j = floor((point.y - bound_box_[2]) / step_y);
+        if (pt_i == n_x){
+            pt_i -= 1;
+        }
+        if (pt_j == n_y) {
+            pt_j -= 1;
+        }
+        int idx = pt_i + pt_j*n_x;
+        grid_idxs.insert(idx);
+    }
+    for (set<int>::iterator it = grid_idxs.begin(); it != grid_idxs.end(); ++it) {
+        int idx = *it;
+        int pt_i = idx % n_x;
+        int pt_j = idx / n_x;
+        float pt_x = bound_box_[0] + (pt_i+0.5)*step_x;
+        float pt_y = bound_box_[2] + (pt_j+0.5)*step_y;
+        seed_samples.push_back(Vertex(pt_x, pt_y, 0.0));
+    }
+   
+    int n_iter = 1;
+    float search_radius = (step_x > step_y) ? step_x : step_y;
+    search_radius /= sqrt(2.0);
+    search_radius += 1.0;
+    for (size_t i_iter = 0; i_iter < n_iter; ++i_iter) {
+        // For each seed, search its neighbors and do an average
+        for (vector<Vertex>::iterator it = seed_samples.begin(); it != seed_samples.end(); ++it) {
+            PclPoint search_point;
+            search_point.setCoordinate((*it).x, (*it).y, 0.0f);
+            // Search nearby and mark nearby
+            vector<int> k_indices;
+            vector<float> k_distances;
+            tree_->radiusSearch(search_point, search_radius, k_indices, k_distances);
+            
+            if (k_indices.size() == 0) {
+                printf("WARNING!!! Empty sampling cell!\n");
+                continue;
+            }
+            float sum_x = 0.0;
+            float sum_y = 0.0;
+            for (vector<int>::iterator neighbor_it = k_indices.begin(); neighbor_it != k_indices.end(); ++neighbor_it) {
+                PclPoint &nb_pt = data_->at(*neighbor_it);
+                sum_x += nb_pt.x;
+                sum_y += nb_pt.y;
+            }
+            
+            sum_x /= k_indices.size();
+            sum_y /= k_indices.size();
+            
+            point.setCoordinate(sum_x, sum_y, 0.0f);
+			point.t = 0;
+			point.id_trajectory = 0;
+			point.id_sample = 0;
+            
+			samples_->push_back(point);
+        }
+    }
+    
+    sample_tree_->setInputCloud(samples_);
+    printf("Sampling Done. Totally %zu samples.\n", samples_->size());
+}
+
+void Trajectories::pickAnotherSampleNear(float x, float y, float max_distance){
+    if (samples_->size() == 0)
+        return;
+    
+    PclPoint center_point;
+    center_point.setCoordinate(x, y, 0.0f);
+    vector<int> k_indices;
+    vector<float> k_sqr_distances;
+    
+    sample_tree_->nearestKSearch(center_point, 1, k_indices, k_sqr_distances);
+    
+    if (k_indices.empty())
+        return;
+    
+    if (sqrt(k_sqr_distances[0]) < search_distance){
+        picked_sample_idxs_.push_back(k_indices[0]);
+    }
+    
+    if (draw_segment_near_selected_samples_){
+        updateSelectedSegments();
+    }
+}
+
+void Trajectories::clearPickedSamples(void){
+    picked_sample_idxs_.clear();
+    segments_to_draw_.clear();
+    
+    segment_idxs_.clear();
+    segment_colors_.clear();
+    segment_vertices_.clear();
 }
