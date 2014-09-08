@@ -5,6 +5,7 @@
 Segment::Segment(){
     points_.clear();
     segLength_ = 0.0f;
+    quality_ = true;
 }
 
 Segment::~Segment(){

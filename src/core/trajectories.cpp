@@ -1,4 +1,5 @@
 #include <ctime>
+#include <cstdlib>
 #include <cmath>
 #include <fstream>
 #include <iostream>
@@ -6,6 +7,9 @@
 #include <boost/filesystem.hpp>
 #include "color_map.h"
 #include "trajectories.h"
+#include <Eigen/Dense>
+#include <Eigen/Eigenvalues>
+#include "graph.h"
 #include "gps_trajectory.pb.h"
 #include <google/protobuf/io/coded_stream.h>
 #include <google/protobuf/io/zero_copy_stream_impl.h>
@@ -14,6 +18,8 @@
 #include <pcl/search/impl/flann_search.hpp>
 
 #include "latlon_converter.h"
+
+using namespace Eigen;
 
 static const float search_distance = 250.0f; // in meters
 static const float arrow_size = 50.0f;   // in meters
@@ -43,16 +49,20 @@ Trajectories::Trajectories(QObject *parent) : Renderable(parent), data_(new PclP
     vertex_colors_individual_.clear();
     
     // Samples
+    show_samples_ = true;
     samples_->clear();
     picked_sample_idxs_.clear();
     normalized_sample_locs_.clear();
     sample_vertex_colors_.clear();
     
     // Segments
+    show_segments_ = true;
     segments_.clear();
+    graph_interpolated_segments_.clear();
     segments_to_draw_.clear();
-    draw_segment_near_selected_samples_ = false;
-    search_range_ = 0.0f;
+    segments_to_draw_for_samples_.clear();
+    segments_to_draw_for_samples_colors_.clear();
+    search_range_ = 10.0f;
 }
 
 Trajectories::~Trajectories(){
@@ -112,53 +122,55 @@ void Trajectories::draw(){
     }
     
     // Draw samples
-    if (samples_->size() == 0) {
-        return;
-    }
-  
-    vertexPositionBuffer_.create();
-    vertexPositionBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
-    vertexPositionBuffer_.bind();
-    vertexPositionBuffer_.allocate(&normalized_sample_locs_[0], 3*normalized_sample_locs_.size()*sizeof(float));
-    shadder_program_->setupPositionAttributes();
-    
-    vertexColorBuffer_.create();
-    vertexColorBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
-    vertexColorBuffer_.bind();
-    vertexColorBuffer_.allocate(&sample_vertex_colors_[0], 4*sample_vertex_colors_.size()*sizeof(float));
-    shadder_program_->setupColorAttributes();
-    
-    glPointSize(sample_point_size_);
-    glDrawArrays(GL_POINTS, 0, normalized_sample_locs_.size());
-    
-    // Draw picked samples
-    if (picked_sample_idxs_.size() > 0) {
-        vector<Vertex> picked_sample_locs;
-        vector<Color> picked_sample_colors;
-        for (size_t i = 0; i < picked_sample_idxs_.size(); ++i) {
-            int sample_id = picked_sample_idxs_[i];
-            Vertex &n_sample_loc = normalized_sample_locs_[sample_id];
-            picked_sample_locs.push_back(Vertex(n_sample_loc.x, n_sample_loc.y, Z_SELECTED_SAMPLES));
-            picked_sample_colors.push_back(Color(1.0, 0.0, 0.0, 1.0));
+    if (show_samples_){
+        if (samples_->size() == 0) {
+            return;
         }
+      
         vertexPositionBuffer_.create();
         vertexPositionBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
         vertexPositionBuffer_.bind();
-        vertexPositionBuffer_.allocate(&picked_sample_locs[0], 3*picked_sample_locs.size()*sizeof(float));
+        vertexPositionBuffer_.allocate(&normalized_sample_locs_[0], 3*normalized_sample_locs_.size()*sizeof(float));
         shadder_program_->setupPositionAttributes();
         
         vertexColorBuffer_.create();
         vertexColorBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
         vertexColorBuffer_.bind();
-        vertexColorBuffer_.allocate(&picked_sample_colors[0], 4*picked_sample_colors.size()*sizeof(float));
+        vertexColorBuffer_.allocate(&sample_vertex_colors_[0], 4*sample_vertex_colors_.size()*sizeof(float));
         shadder_program_->setupColorAttributes();
         
-        glPointSize(1.5*sample_point_size_);
-        glDrawArrays(GL_POINTS, 0, picked_sample_locs.size());
+        glPointSize(sample_point_size_);
+        glDrawArrays(GL_POINTS, 0, normalized_sample_locs_.size());
+        
+        // Draw picked samples
+        if (picked_sample_idxs_.size() > 0) {
+            vector<Vertex> picked_sample_locs;
+            vector<Color> picked_sample_colors;
+            for (set<int>::iterator it = picked_sample_idxs_.begin(); it != picked_sample_idxs_.end(); ++it) {
+                int sample_id = *it;
+                Vertex &n_sample_loc = normalized_sample_locs_[sample_id];
+                picked_sample_locs.push_back(Vertex(n_sample_loc.x, n_sample_loc.y, Z_SELECTED_SAMPLES));
+                picked_sample_colors.push_back(Color(1.0, 0.0, 0.0, 1.0));
+            }
+            vertexPositionBuffer_.create();
+            vertexPositionBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
+            vertexPositionBuffer_.bind();
+            vertexPositionBuffer_.allocate(&picked_sample_locs[0], 3*picked_sample_locs.size()*sizeof(float));
+            shadder_program_->setupPositionAttributes();
+            
+            vertexColorBuffer_.create();
+            vertexColorBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
+            vertexColorBuffer_.bind();
+            vertexColorBuffer_.allocate(&picked_sample_colors[0], 4*picked_sample_colors.size()*sizeof(float));
+            shadder_program_->setupColorAttributes();
+            
+            glPointSize(1.5*sample_point_size_);
+            glDrawArrays(GL_POINTS, 0, picked_sample_locs.size());
+        }
     }
     
-    // Draw segments near selected samples
-    if (draw_segment_near_selected_samples_) {
+    // Draw segments_to_draw_
+    if (show_segments_){
         vertexPositionBuffer_.create();
         vertexPositionBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
         vertexPositionBuffer_.bind();
@@ -186,6 +198,12 @@ void Trajectories::draw(){
 }
 
 void Trajectories::prepareForVisualization(QVector4D bound_box){
+    normalized_vertices_.clear();
+    vertex_colors_const_.clear();
+    vertex_colors_individual_.clear();
+    normalized_sample_locs_.clear();
+    sample_vertex_colors_.clear();
+    
     float delta_x = bound_box[1] - bound_box[0];
     float delta_y = bound_box[3] - bound_box[2];
     if (delta_x < 0 || delta_y < 0) {
@@ -202,8 +220,8 @@ void Trajectories::prepareForVisualization(QVector4D bound_box){
         float n_y = (point.y - center_y) / scale_factor_;
         normalized_vertices_.push_back(Vertex(n_x, n_y, Z_TRAJECTORIES));
     }
-    Color dark_gray = ColorMap::getInstance().getNamedColor(ColorMap::DARK_GRAY);
-    vertex_colors_const_.resize(normalized_vertices_.size(), dark_gray);
+    Color light_gray = ColorMap::getInstance().getNamedColor(ColorMap::LIGHT_GRAY);
+    vertex_colors_const_.resize(normalized_vertices_.size(), light_gray);
     
     vertex_colors_individual_.resize(data_->size(), Color(0,0,0,1));
     for (int i=0; i < trajectories_.size(); ++i) {
@@ -830,11 +848,104 @@ void Trajectories::clearData(void){
     // Clear segments
     segments_.clear();
     segments_to_draw_.clear();
-    draw_segment_near_selected_samples_ = false;
     search_range_ = 0.0f;
     segment_idxs_.clear();
     segment_vertices_.clear();
     segment_colors_.clear();
+}
+
+void Trajectories::computeWeightAtScale(int neighborhood_size){
+    if (samples_->size() == 0){
+        return;
+    }
+    
+    sample_weight_.clear();
+    sample_weight_.resize(samples_->size(), 0.0);
+    
+    clock_t begin = clock();
+    
+    int start = 10;
+    int step = 10;
+    int stop = 100;
+    
+    double max = 0.0;
+    
+    double sigma_max = 0.2;
+    
+    for(size_t i = 0; i < samples_->size(); ++i){
+        vector<int> k_indices;
+        vector<float> k_distances;
+        sample_tree_->nearestKSearch(samples_->at(i), stop, k_indices, k_distances);
+        
+        MatrixXf m(stop, 2);
+        for(size_t j = 0; j < stop; ++j){
+            m(j, 0) = samples_->at(k_indices[j]).x;
+            m(j, 1) = samples_->at(k_indices[j]).y;
+        }
+        MatrixXf centered = m.rowwise() - m.colwise().mean();
+       
+        double prev_weight = 0.0f;
+        double prev_slop = 1.0f;
+        int count = 0;
+        for (int neighborhood_size = start; neighborhood_size <= stop; neighborhood_size += step) {
+            MatrixXf block = centered.block(0, 0, neighborhood_size, 2);
+            MatrixXf cov = (block.adjoint() * block) / double(m.rows());
+            
+            SelfAdjointEigenSolver<MatrixXf> es(cov);
+            double sum_values = es.eigenvalues().sum();
+            double tmp_weight;
+            if (sum_values < 1e-6) {
+                tmp_weight = 0.0f;
+            }
+            else{
+                tmp_weight = es.eigenvalues()(0) / sum_values;
+            }
+            
+            double cur_slop = (tmp_weight - prev_weight) / step;
+            if (cur_slop > 4*prev_slop) {
+                //printf("i=%lu, neighborhood size: %d\n", i, neighborhood_size);
+                break;
+            }
+            
+            if (tmp_weight > sigma_max) {
+                sample_weight_[i] += 1.0f;
+            }
+            
+            count += 1;
+            prev_weight = tmp_weight;
+            prev_slop = cur_slop;
+        }
+        
+        if (sample_weight_[i] > max) {
+                max = sample_weight_[i];
+        }
+    }
+    
+    
+    double w_max = 0.6;
+    double w_min = 0.5;
+    for (size_t i = 0; i < samples_->size(); ++i) {
+        double w = sample_weight_[i] / 9;
+        Color pt_color;
+        if (w > w_max) {
+            pt_color = ColorMap::getInstance().getContinusColor(0.9);
+        }
+        else if (w < w_min){
+            pt_color = ColorMap::getInstance().getNamedColor(ColorMap::LIGHT_GRAY);
+        }
+        else{
+            pt_color = ColorMap::getInstance().getContinusColor(0.5);
+        }
+        
+        sample_vertex_colors_[i].r = pt_color.r;
+        sample_vertex_colors_[i].g = pt_color.g;
+        sample_vertex_colors_[i].b = pt_color.b;
+    }
+    
+    clock_t end = clock();
+    
+    double elapsed_time = double(end - begin) / CLOCKS_PER_SEC;
+    printf("time elapsed = %.1f sec.", elapsed_time);
 }
 
 void Trajectories::computeSegments(float extension){
@@ -894,9 +1005,14 @@ void Trajectories::computeSegments(float extension){
             Segment &this_segment = segments_[pt_idx_in_data];
             this_segment.segLength() = cum_prev_to_current + cum_current_to_nxt;
             //printf("Extracted one segment: from %d to %d, prev_to_cur = %.1f m, cur_to_nxt = %.1f\n", prev_idx, nxt_idx, cum_prev_to_current, cum_current_to_nxt);
+            float current_time = data_->at(traj[pt_idx]).t;
             for (size_t croped_idx = prev_idx; croped_idx <= nxt_idx; ++croped_idx) {
                 PclPoint &this_point = data_->at(traj[croped_idx]);
-                this_segment.points().push_back(SegPoint(this_point.x, this_point.y, this_point.t, traj[croped_idx]));
+                this_segment.points().push_back(SegPoint(this_point.x, this_point.y, this_point.t - current_time, traj[croped_idx]));
+            }
+            
+            if (cum_prev_to_current > 3 * extension || cum_current_to_nxt > 3 * extension){
+                this_segment.quality() = false;
             }
           
             prev_pt_idx_in_data = pt_idx_in_data;
@@ -941,51 +1057,509 @@ void Trajectories::computeSegments(float extension){
 
 void Trajectories::selectSegmentsWithSearchRange(float range){
     search_range_ = range;
-    if (!draw_segment_near_selected_samples_)
+    if (!show_segments_)
         return;
     
     if (picked_sample_idxs_.size() == 0){
         return;
+    }
+    
+    recomputeSegmentsForSamples();
+    updateSelectedSegments();
+}
+
+void Trajectories::recomputeSegmentsForSamples(){
+    segments_to_draw_for_samples_.clear();
+    segments_to_draw_for_samples_colors_.clear();
+    for (set<int>::iterator it = picked_sample_idxs_.begin(); it != picked_sample_idxs_.end(); ++it) {
+        selectSegmentsNearSample(*it);
+    }
+}
+
+void Trajectories::updateSelectedSegments(void){
+    segment_vertices_.clear();
+    segment_colors_.clear();
+    segment_idxs_.clear();
+    
+    // Draw general picked segment in segments_to_draw_
+    for (size_t idx = 0; idx < segments_to_draw_.size(); ++idx) {
+        Segment &this_seg = segments_[segments_to_draw_[idx]];
+        vector<int> idxs;
+        Color seg_color = ColorMap::getInstance().getDiscreteColor(idx);
+        for (int j = 0; j < this_seg.points().size(); ++j) {
+            int orig_idx = this_seg.points()[j].orig_idx;
+            idxs.push_back(segment_vertices_.size());
+            Vertex &orig_vertex = normalized_vertices_[orig_idx];
+            segment_vertices_.push_back(Vertex(orig_vertex.x, orig_vertex.y, Z_SEGMENTS));
+            float alpha = 1.0 - 0.7 * static_cast<float>(j) / this_seg.points().size();
+            Color pt_color(alpha*seg_color.r, alpha*seg_color.g, alpha*seg_color.b, 1.0);
+            segment_colors_.push_back(pt_color);
+        }
+        segment_idxs_.push_back(idxs);
+    }
+    
+    // Draw segments due to picked samples
+    for (size_t idx = 0; idx < segments_to_draw_for_samples_.size(); ++idx) {
+        Segment &this_seg = segments_[segments_to_draw_for_samples_[idx]];
+        Color &this_color = segments_to_draw_for_samples_colors_[idx];
+        vector<int> idxs;
+        for (int j = 0; j < this_seg.points().size(); ++j) {
+            int orig_idx = this_seg.points()[j].orig_idx;
+            idxs.push_back(segment_vertices_.size());
+            Vertex &orig_vertex = normalized_vertices_[orig_idx];
+            segment_vertices_.push_back(Vertex(orig_vertex.x, orig_vertex.y, Z_SEGMENTS));
+            float alpha = 1.0 - 0.7 * static_cast<float>(j) / this_seg.points().size();
+            Color pt_color(alpha*this_color.r, alpha*this_color.g, alpha*this_color.b, 1.0);
+            segment_colors_.push_back(pt_color);
+        }
+        segment_idxs_.push_back(idxs);
+    }
+}
+
+void Trajectories::selectSegmentsNearSample(int sample_id){
+    if (segments_.size() == 0)
+        return;
+    
+    // Search GPS points around the sample point
+    vector<int> k_indices;
+    vector<float> k_distances;
+    tree_->radiusSearch(samples_->at(sample_id), search_range_, k_indices, k_distances);
+    printf("Search range is %2f\n", search_range_);
+    
+    Color seg_color = ColorMap::getInstance().getDiscreteColor(sample_id);
+    for (size_t i = 0; i < k_indices.size(); ++i) {
+        if (!segments_[k_indices[i]].quality()) {
+            continue;
+        }
+        segments_to_draw_for_samples_.push_back(k_indices[i]);
+        segments_to_draw_for_samples_colors_.push_back(seg_color);
     }
     updateSelectedSegments();
 }
 
-void Trajectories::updateSelectedSegments(void){
-    if (picked_sample_idxs_.size() == 0){
+void Trajectories::drawSegmentAt(int seg_idx){
+    if (segments_.size() == 0){
+        return;
+    }
+    //segments_to_draw_.clear();
+    segments_to_draw_.push_back(seg_idx);
+    updateSelectedSegments();
+}
+
+void Trajectories::clearDrawnSegments(){
+    segments_to_draw_.clear();
+    segments_to_draw_for_samples_.clear();
+    segments_to_draw_for_samples_colors_.clear();
+    updateSelectedSegments();
+}
+
+Segment &Trajectories::segmentAt(int seg_idx){
+    return segments_[seg_idx];
+}
+
+void Trajectories::interpolateSegmentWithGraph(Graph *g){
+    if (g == NULL){
+        printf("Empty graph!\n");
+        return;
+    }
+    if (segments_.empty()){
+        printf("No segment to interpolate.\n");
         return;
     }
     
-    segments_to_draw_.clear();
-    segment_vertices_.clear();
-    segment_colors_.clear();
-    segment_idxs_.clear();
-    int count = 0;
-    for(vector<int>::iterator it = picked_sample_idxs_.begin(); it != picked_sample_idxs_.end(); ++it){
-        int sample_id = *it;
-        // Search GPS points around the sample point
-        vector<int> k_indices;
-        vector<float> k_distances;
-        tree_->radiusSearch(samples_->at(sample_id), search_range_, k_indices, k_distances);
-        
-        Color seg_color = ColorMap::getInstance().getDiscreteColor(count);
-        for (size_t i = 0; i < k_indices.size(); ++i) {
-            if (i >= 25) {
-                break;
-            }
-            segments_to_draw_.push_back(k_indices[i]);
-            Segment &this_seg = segments_[k_indices[i]];
-            vector<int> idxs;
-            for (int j = 0; j < this_seg.points().size(); ++j) {
-                int orig_idx = this_seg.points()[j].orig_idx;
-                idxs.push_back(segment_vertices_.size());
-                Vertex &orig_vertex = normalized_vertices_[orig_idx];
-                segment_vertices_.push_back(Vertex(orig_vertex.x, orig_vertex.y, Z_SEGMENTS));
-                segment_colors_.push_back(seg_color);
-            }
-            segment_idxs_.push_back(idxs);
+    graph_interpolated_segments_.clear();
+    graph_interpolated_segments_.resize(segments_.size());
+    
+    for (size_t seg_id = 0; seg_id < segments_.size(); ++seg_id){
+        Segment &seg = segmentAt(seg_id);
+        vector<int> seg_pt_idxs;
+        for(size_t i = 0; i < seg.points().size(); ++i){
+            SegPoint &pt = seg.points()[i];
+            seg_pt_idxs.push_back(pt.orig_idx);
         }
-        ++count;
+        
+        vector<int> &result_path = graph_interpolated_segments_[seg_id];
+        g->shortestPathInterpolation(seg_pt_idxs, result_path);
     }
+}
+
+void Trajectories::interpolateSegmentWithGraphAtSample(int sample_id, Graph *g, vector<int> &nearby_segments, vector<vector<int>> &results){
+    if (g == NULL){
+        printf("Empty graph!\n");
+        return;
+    }
+    if (segments_.empty()){
+        printf("No segment to interpolate.\n");
+        return;
+    }
+    
+    // Search GPS points around the sample point
+    vector<int> k_indices;
+    vector<float> k_distances;
+    tree_->radiusSearch(samples_->at(sample_id), search_range_, k_indices, k_distances);
+    
+    //Color seg_color = ColorMap::getInstance().getDiscreteColor(picked_sample_idxs_.size());
+    nearby_segments.clear();
+    for (size_t i = 0; i < k_indices.size(); ++i) {
+        if (!segments_[k_indices[i]].quality()) {
+            continue;
+        }
+        nearby_segments.push_back(k_indices[i]);
+    }
+    
+    results.clear();
+    results.resize(nearby_segments.size());
+    for (size_t seg_id = 0; seg_id < nearby_segments.size(); ++seg_id){
+        Segment &seg = segmentAt(nearby_segments[seg_id]);
+        vector<int> seg_pt_idxs;
+        for(size_t i = 0; i < seg.points().size(); ++i){
+            SegPoint &pt = seg.points()[i];
+            seg_pt_idxs.push_back(pt.orig_idx);
+        }
+        
+        vector<int> &result_path = results[seg_id];
+        g->shortestPathInterpolation(seg_pt_idxs, result_path);
+    }
+}
+
+void Trajectories::clusterSegmentsWithGraphAtSample(int sample_id, Graph *g){
+    vector<int> nearby_segment_idxs;
+    vector<vector<int>> interpolated_segments;
+    interpolateSegmentWithGraphAtSample(sample_id, g, nearby_segment_idxs, interpolated_segments);
+    
+    printf("%lu nearby segments.\n", nearby_segment_idxs.size());
+    
+    set<int> remaining_segments;
+    for (size_t i = 0;  i < nearby_segment_idxs.size(); ++i) {
+        remaining_segments.insert(i);
+    }
+    
+    vector<vector<int>> clusters;
+    typedef pair<int, int> key_type;
+    map<key_type, float> computed_dist;
+
+    while (remaining_segments.size() != 0) {
+        // Randomly pick a segment
+        int idx = rand() % remaining_segments.size();
+        set<int>::iterator it = remaining_segments.begin();
+        advance(it, idx);
+        int selected_seg_idx = *it;
+        
+        vector<int> &selected_segment = interpolated_segments[*it];
+        
+        // Check if this segment can be merged to existing segments; Otherwise it will become a new cluster.
+        bool absorbed = false;
+        for (size_t cluster_id = 0; cluster_id < clusters.size(); ++cluster_id) {
+            vector<int> &cluster = clusters[cluster_id];
+            float max_distance = 0.0f;
+            for (size_t s_id = 0; s_id < cluster.size(); ++s_id) {
+                key_type this_key(*it, cluster[s_id]);
+                key_type reverse_key(cluster[s_id], *it);
+                
+                // Check distance between selected segment and this cluster segment.
+                map<key_type, float>::iterator m_it = computed_dist.find(this_key);
+                float dist;
+                if (m_it != computed_dist.end()) {
+                    dist = m_it->second;
+                }
+                else{
+                    // Compute distance
+                    dist = g->DTWDistance(selected_segment, interpolated_segments[cluster[s_id]]);
+                    computed_dist[this_key] = dist;
+                    computed_dist[reverse_key] = dist;
+                }
+                if (dist > max_distance) {
+                    max_distance = dist;
+                }
+            }
+            
+            if (max_distance < 50.0f) {
+                cluster.push_back(selected_seg_idx);
+                absorbed = true;
+            }
+        }
+        
+        if (!absorbed){
+            vector<int> new_cluster;
+            new_cluster.push_back(selected_seg_idx);
+            clusters.push_back(new_cluster);
+        }
+        
+        remaining_segments.erase(it);
+    }
+    
+    
+    // Visualization
+    segments_to_draw_for_samples_.clear();
+    segments_to_draw_for_samples_colors_.clear();
+    int n_valid_cluster = 0;
+    for (size_t cluster_id = 0; cluster_id < clusters.size(); ++cluster_id) {
+        vector<int> &cluster = clusters[cluster_id];
+        if (cluster.size() < 5) {
+            continue;
+        }
+        Color cluster_color = ColorMap::getInstance().getDiscreteColor(n_valid_cluster);
+        ++n_valid_cluster;
+        for (size_t seg_id = 0; seg_id < cluster.size(); ++seg_id) {
+            segments_to_draw_for_samples_.push_back(nearby_segment_idxs[cluster[seg_id]]);
+            segments_to_draw_for_samples_colors_.push_back(cluster_color);
+        }
+    }
+    printf("%d cluster extracted.\n", n_valid_cluster);
+    updateSelectedSegments();
+}
+
+int Trajectories::clusterSegmentsUsingDistanceAtSample(int sample_id, double sigma, double threshold, int minClusterSize){
+    vector<int> nearby_segment_idxs;
+    
+    // Search GPS points around the sample point
+    vector<int> k_indices;
+    vector<float> k_distances;
+    tree_->radiusSearch(samples_->at(sample_id), search_range_, k_indices, k_distances);
+    
+    nearby_segment_idxs.clear();
+    for (size_t i = 0; i < k_indices.size(); ++i) {
+        if (!segments_[k_indices[i]].quality()) {
+            continue;
+        }
+        nearby_segment_idxs.push_back(k_indices[i]);
+    }
+    
+    printf("%lu nearby segments.\n", nearby_segment_idxs.size());
+    
+    clock_t begin = clock();
+    int first_idx = -1;
+    float max_dist = 0.0f;
+    for (size_t i = 0; i < nearby_segment_idxs.size(); ++i){
+        Segment &seg = segments_[nearby_segment_idxs[i]];
+        if (seg.points().size() < 2) {
+            continue;
+        }
+        float delta_x = seg.points()[0].x - samples_->at(sample_id).x;
+        float delta_y = seg.points()[0].y - samples_->at(sample_id).y;
+        float dist1 = sqrt(delta_x*delta_x + delta_y*delta_y);
+       
+        int last_pt_idx = seg.points().size() - 1;
+        delta_x = seg.points()[last_pt_idx].x - samples_->at(sample_id).x;
+        delta_y = seg.points()[last_pt_idx].y - samples_->at(sample_id).y;
+        float dist2 = sqrt(delta_x*delta_x + delta_y*delta_y);
+        
+        float dist = (dist1 > dist2) ? dist1 : dist2;
+        if (max_dist < dist) {
+            max_dist = dist;
+            first_idx = i;
+        }
+    }
+    
+    
+    // Randomly pick the starting segment
+    set<int> remaining_segments;
+    for (size_t i = 0;  i < nearby_segment_idxs.size(); ++i) {
+        if (i == first_idx) {
+            continue;
+        }
+        remaining_segments.insert(nearby_segment_idxs[i]);
+    }
+    
+    // Start furthest point clustering
+    vector<vector<int>> clusters;
+    vector<int> first_cluster;
+    first_cluster.push_back(nearby_segment_idxs[first_idx]);
+    clusters.push_back(first_cluster);
+    
+    typedef pair<int, int> key_type;
+    map<key_type, float> computed_dist;
+    
+    while (remaining_segments.size() != 0) {
+        // Look over remaining segments, find its distance to each existing clusters.
+        float max_distance = -1e6;
+        int max_segment_idx = -1;
+        
+        vector<int> segments_to_merge;
+        vector<int> merging_to;
+        for (set<int>::iterator it=remaining_segments.begin(); it != remaining_segments.end(); ++it) {
+            int seg_id = *it;
+            
+            // Check the minimum distance of this segment to each of the existing clusters.
+            float min_distance = 1e6;
+            int min_cluster_id = -1;
+            for (size_t i_cluster = 0; i_cluster < clusters.size(); ++i_cluster) {
+                vector<int> &current_cluster = clusters[i_cluster];
+                // Look through each segment in the cluster
+                float tmp_min_distance = 1e6;
+                for (size_t j_seg = 0; j_seg < current_cluster.size(); ++j_seg) {
+                    int other_seg_id = current_cluster[j_seg];
+                    // Reuse distance if it has been computed before
+                    key_type this_key(seg_id, other_seg_id);
+                    key_type reverse_key(other_seg_id, seg_id);
+                    map<key_type, float>::iterator m_it = computed_dist.find(this_key);
+                    float tmp_dist = 0.0f;
+                    if (m_it != computed_dist.end()) {
+                        tmp_dist = m_it->second;
+                    }
+                    else{
+                        // Compute tmp_dist.
+                        tmp_dist = computeSegmentDistance(seg_id, other_seg_id, sigma);
+                        // Insert the computed dist for reuse.
+                        //printf("dist = %.2f\n", tmp_dist);
+                        computed_dist[this_key] = tmp_dist;
+                        computed_dist[reverse_key] = tmp_dist;
+                    }
+                    if(tmp_dist < tmp_min_distance){
+                        tmp_min_distance = tmp_dist;
+                    }
+                }
+                
+                if (tmp_min_distance < min_distance) {
+                    min_distance = tmp_min_distance;
+                    min_cluster_id = i_cluster;
+                }
+            }
+            
+            // If min_distance is small, we will merge this segment into that corresponding cluster
+            if (min_distance < threshold) {
+                // Add this segment id to merging list
+                segments_to_merge.push_back(seg_id);
+                merging_to.push_back(min_cluster_id);
+            }
+            
+            if (max_distance < min_distance) {
+                max_distance = min_distance;
+                max_segment_idx = seg_id;
+            }
+        }
+        
+        // Remove merging segments
+        for (size_t i = 0; i < segments_to_merge.size(); ++i) {
+            clusters[merging_to[i]].push_back(segments_to_merge[i]);
+            remaining_segments.erase(segments_to_merge[i]);
+        }
+        
+        if (max_distance < threshold) {
+            break;
+        }
+        
+        // reate new cluster
+        vector<int> new_cluster;
+        new_cluster.push_back(max_segment_idx);
+        clusters.push_back(new_cluster);
+        remaining_segments.erase(max_segment_idx);
+    }
+    
+    clock_t end = clock();
+    double elapsed_time = double(end - begin) / CLOCKS_PER_SEC;
+    printf("Clustering %lu segments took %.1f sec.\n", nearby_segment_idxs.size(), elapsed_time);
+    
+    // Visualization
+    segments_to_draw_for_samples_.clear();
+    segments_to_draw_for_samples_colors_.clear();
+    int n_valid_cluster = 0;
+    for (size_t cluster_id = 0; cluster_id < clusters.size(); ++cluster_id) {
+        vector<int> &cluster = clusters[cluster_id];
+        if (cluster.size() < minClusterSize) {
+            continue;
+        }
+        Color cluster_color = ColorMap::getInstance().getDiscreteColor(n_valid_cluster);
+        ++n_valid_cluster;
+        for (size_t i = 0; i < cluster.size(); ++i) {
+            segments_to_draw_for_samples_.push_back(cluster[i]);
+            segments_to_draw_for_samples_colors_.push_back(cluster_color);
+        }
+    }
+    updateSelectedSegments();
+    return n_valid_cluster;
+}
+
+float Trajectories::computeSegmentDistance(int seg_idx1, int seg_idx2, double sigma){
+    // Dynamic Time Wraping distance using different search range with t.
+    Segment &seg1 = segments_[seg_idx1];
+    Segment &seg2 = segments_[seg_idx2];
+    
+    if(seg1.points().size() < 2 || seg2.points().size() < 2)
+        return 1e6;
+    
+    // Add head and tail nodes for DTWD
+    SegPoint &seg1_start = seg1.points()[0];
+    SegPoint &seg1_end = seg1.points()[seg1.points().size()-1];
+    SegPoint &seg2_start = seg2.points()[0];
+    SegPoint &seg2_end = seg2.points()[seg2.points().size()-1];
+    
+    float seg1_radius1 = sigma * abs(seg1_start.t);
+    float seg1_radius2 = sigma * abs(seg1_end.t);
+    float seg2_radius1 = sigma * abs(seg2_start.t);
+    float seg2_radius2 = sigma * abs(seg2_end.t);
+    
+    float delta_x1 = seg1_start.x - seg2_start.x;
+    float delta_y1 = seg1_start.y - seg2_start.y;
+    float dist1 = sqrt(delta_x1*delta_x1 + delta_y1*delta_y1);  - seg1_radius1 - seg2_radius1;
+    if (dist1 < 0.0f) {
+        dist1 = 0.0f;
+    }
+    
+    float delta_x2 = seg1_end.x - seg2_end.x;
+    float delta_y2 = seg1_end.y - seg2_end.y;
+    float dist2 = sqrt(delta_x2*delta_x2 + delta_y2*delta_y2);  - seg1_radius2 - seg2_radius2;
+    if (dist2 < 0.0f) {
+        dist2 = 0.0f;
+    }
+    
+    return dist1+dist2;
+
+    // For example, if seg1 has 4 points, new_seg_idx1 will become [0, 1, 2, 3]
+    vector<int> new_seg_idx1(seg1.points().size(), -1);
+    vector<int> new_seg_idx2(seg2.points().size(), -1);
+    
+    for (size_t i = 0; i < seg1.points().size(); ++i) {
+        new_seg_idx1[i] = i;
+    }
+    
+    for (size_t i = 0; i < seg2.points().size(); ++i) {
+        new_seg_idx2[i] = i;
+    }
+    
+    int n = seg1.points().size();
+    int m = seg2.points().size();
+    vector<vector<float>> DTW(n+1, vector<float>(m+1, 1e6));
+    
+    DTW[0][0] = 0.0f;
+    
+    for (size_t i = 1; i < n+1; ++i) {
+        for (size_t j = 1; j < m+1; ++j) {
+            float cost = segPointDistance(new_seg_idx1[i-1], new_seg_idx2[j-1], seg1, seg2, sigma);
+            float min1 = (DTW[i-1][j] < DTW[i][j-1]) ? DTW[i-1][j] : DTW[i][j-1];
+            float min2 = (min1 < DTW[i-1][j-1]) ? min1 : DTW[i-1][j-1];
+            DTW[i][j] = cost + min2;
+        }
+    }
+    
+    return DTW[n][m];
+}
+
+float Trajectories::segPointDistance(int idx1, int idx2, Segment &seg1, Segment &seg2, double sigma){
+    SegPoint &pt1 = seg1.points()[idx1];
+    SegPoint &pt2 = seg2.points()[idx2];
+    
+    float dist = 0.0f;
+   
+    float radius1 = sigma * abs(pt1.t);
+    float radius2 = sigma * abs(pt2.t);
+    float sign1 = 1.0f;
+    float sign2 = 1.0f;
+    if (pt1.t < 0)
+        sign1 = -1.0f;
+    if (pt2.t < 0)
+        sign2 = -1.0f;
+   
+    float delta_x = sign1*pt1.x - sign2*pt2.x;
+    float delta_y = sign1*pt1.y - sign2*pt2.y;
+    dist += sqrt(delta_x*delta_x + delta_y*delta_y);
+    dist -= radius1;
+    dist -= radius2;
+    if (dist < 0.0f) {
+        dist = 0.0f;
+    }
+    
+    return dist;
 }
 
 void Trajectories::samplePointCloud(float neighborhood_size){
@@ -1099,19 +1673,17 @@ void Trajectories::pickAnotherSampleNear(float x, float y, float max_distance){
         return;
     
     if (sqrt(k_sqr_distances[0]) < search_distance){
-        picked_sample_idxs_.push_back(k_indices[0]);
-    }
-    
-    if (draw_segment_near_selected_samples_){
-        updateSelectedSegments();
+        auto ret = picked_sample_idxs_.emplace(k_indices[0]);
+        if (ret.second) {
+            // Update segment_to_draw_for_samples_ and corresponding segment vertices and colors
+            selectSegmentsNearSample(k_indices[0]);
+        }
     }
 }
 
 void Trajectories::clearPickedSamples(void){
     picked_sample_idxs_.clear();
-    segments_to_draw_.clear();
-    
-    segment_idxs_.clear();
-    segment_colors_.clear();
-    segment_vertices_.clear();
+    segments_to_draw_for_samples_.clear();
+    segments_to_draw_for_samples_colors_.clear();
+    updateSelectedSegments();
 }

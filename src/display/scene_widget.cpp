@@ -1,4 +1,5 @@
 #include "scene_widget.h"
+#include <ctime>
 #include <cmath>
 #include <QDebug>
 #include <QMenu>
@@ -9,6 +10,7 @@
 #include <CGAL/intersections.h>
 #include "trajectories.h"
 #include "openstreetmap.h"
+#include "graph.h"
 #include "renderable.h"
 #include "color_map.h"
 #include "main_window.h"
@@ -27,6 +29,7 @@ SceneWidget::SceneWidget(QWidget * parent, const QGLWidget * shareWidget, Qt::Wi
     trajectories_ = new Trajectories(this);
     sample_selection_mode = false;
     osmMap_ = new OpenStreetMap(this);
+    graph_ = new Graph(this);
     selection_mode_ = false;
     
     scaleFactor_ = 1.0;
@@ -41,6 +44,7 @@ SceneWidget::SceneWidget(QWidget * parent, const QGLWidget * shareWidget, Qt::Wi
     right_click_menu_->addAction("Open OSM", this, SLOT(slotOpenOsmMap()));
     
     show_map_ = true;
+    show_graph_ = true;
 }
 
 SceneWidget::~SceneWidget()
@@ -49,6 +53,7 @@ SceneWidget::~SceneWidget()
     delete right_click_menu_;
     delete trajectories_;
     delete osmMap_;
+    delete graph_;
 }
 
 void SceneWidget::toggleSelectionMode(){
@@ -118,8 +123,10 @@ void SceneWidget::mouseMoveEvent(QMouseEvent *event)
     if (event->buttons() & Qt::LeftButton) {
         int dx = event->x() - lastPos.x();
         int dy = event->y() - lastPos.y();
-        setXRotation(xRot + 8*dx);
-        setYRotation(yRot + 8*dy);
+        //setXRotation(xRot + 8*dx);
+        //setYRotation(yRot + 8*dy);
+        setXTranslate(xTrans + dx);
+        setYTranslate(yTrans - dy);
     }
     else if(event->buttons() & Qt::RightButton){
         int dx = event->x() - lastPos.x();
@@ -200,6 +207,7 @@ void SceneWidget::initializeGL(){
     m_program_ = new CustomizedShaderProgram(this);
     trajectories_->setShadderProgram(m_program_);
     osmMap_->setShadderProgram(m_program_);
+    graph_->setShadderProgram(m_program_);
     m_program_->link();
 }
 
@@ -222,6 +230,10 @@ void SceneWidget::paintGL(){
     if (show_map_){
         osmMap_->draw();
     }
+    
+    if (show_graph_){
+        graph_->draw();
+    }
     trajectories_->draw();
     
     // Draw Axis at the bottom left corner
@@ -232,7 +244,7 @@ void SceneWidget::paintGL(){
         return;
     }
     float delta = (delta_x > delta_y) ? delta_x : delta_y;
-    float axis_length = 100.0f / delta ;
+    float axis_length = 100.0f / delta * 2;
     
     QVector3D near_point = view_matrix_.inverted().map(QVector3D(-0.8, -0.8, 0.0));
     QVector3D far_point = view_matrix_.inverted().map(QVector3D(-0.8, -0.8, 1.0));
@@ -280,7 +292,7 @@ void SceneWidget::resizeGL(int w, int h){
     if (h == 0) {
         h = 1;
     }
-    
+   
     glViewport(0, 0, (GLint)w, (GLint)h);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
@@ -317,6 +329,7 @@ void SceneWidget::updateSceneBoundary(QVector4D bound_box_to_insert){
     updateMaxScaleFactor();
     trajectories_->prepareForVisualization(bound_box_);
     osmMap_->prepareForVisualization(bound_box_);
+    graph_->prepareForVisualization(bound_box_);
 }
 
 void SceneWidget::setSceneBoundary(QVector4D new_bound){
@@ -423,6 +436,26 @@ void SceneWidget::slotSetShowMap(int state){
     updateGL();
 }
 
+void SceneWidget::slotClusterSegmentsAtSample(void){
+    set<int> &picked_sample = trajectories_->picked_sample_idxs();
+    if (picked_sample.size() == 0) {
+        return;
+    }
+    int sample_id = *picked_sample.begin();
+    
+    MainWindow* main_window = MainWindow::getInstance();
+    double sigmaValue = main_window->getSigmaValue();
+    double thresholdValue = main_window->getThresholdValue();
+    int minClusterSize = main_window->getMinClusterSize();
+    int n_cluster = trajectories_->clusterSegmentsUsingDistanceAtSample(sample_id, sigmaValue, thresholdValue, minClusterSize);
+    QString str;
+    QTextStream(&str) << n_cluster << " cluster extracted.";
+    main_window->showInStatusBar(str);
+    //trajectories_->clusterSegmentsWithGraphAtSample(sample_id, graph_);
+    
+    updateGL();
+}
+
 void SceneWidget::toggleTrajectories(void)
 {
     trajectories_->toggleRenderMode();
@@ -442,8 +475,21 @@ void SceneWidget::slotSamplePointCloud(void){
     if (ok) {
         trajectories_->samplePointCloud(static_cast<float>(d));
         trajectories_->prepareForVisualization(bound_box_);
+       
+        // Output information
+        QString str;
+        QTextStream(&str) <<trajectories_->samples()->size() << " samples. Grid size: "<<d << " m.";
+        emit newSamplesDrawn(str);
         updateGL();
     }
+}
+
+void SceneWidget::slotSetShowSamples(int state){
+    if (state == Qt::Unchecked)
+        trajectories_->setShowSamples(false);
+    else
+        trajectories_->setShowSamples(true);
+    updateGL();
 }
 
 void SceneWidget::slotGenerateSegments(void){
@@ -457,8 +503,11 @@ void SceneWidget::slotGenerateSegments(void){
     double d = QInputDialog::getDouble(this, tr("Set Segment Parameter"), tr("Segment extension (in meters):"), 100.0, 1.0, 250.0, 1, &ok);
     if (ok) {
         trajectories_->computeSegments(static_cast<float>(d));
-        //trajectories_->prepareForVisualization(bound_box_);
-        //updateGL();
+        
+        // Generate information
+        QString str;
+        QTextStream(&str) << trajectories_->nSegments() << " segments. Extension: " << d << "m.";
+        emit newSegmentsComputed(str);
     }
 }
 
@@ -512,6 +561,15 @@ void SceneWidget::slotExtractTrajectories(void){
     updateGL();
 }
 
+void SceneWidget::slotComputePointCloudVariance(){
+    bool ok;
+    int n = QInputDialog::getInt(this, tr("Set Neighborhood"), tr("Neighborhood size):"), 10, 5, 100, 5, &ok);
+    if (ok) {
+        trajectories_->computeWeightAtScale(n);
+    }
+    updateGL();
+}
+
 //void SceneWidget::slotOpenOsmFile(QModelIndex index){
 //}
 
@@ -531,28 +589,127 @@ void SceneWidget::slotClearPickedSamples(void){
     updateGL();
 }
 
-void SceneWidget::slotToggleSegmentsAtPickedSamples(void){
+void SceneWidget::slotSampleCoverDistanceChange(double d){
+    trajectories_->selectSegmentsWithSearchRange(static_cast<float>(d));
+    updateGL();
+}
+
+void SceneWidget::slotInitializeGraph(void){
+    if (trajectories_->isEmpty()){
+        QMessageBox msgBox;
+        msgBox.setText("Please loat trajectories first.");
+        msgBox.exec();
+        return;
+    }
+    
     if (trajectories_->samples()->size() == 0){
         QMessageBox msgBox;
         msgBox.setText("Please do sampling first.");
         msgBox.exec();
         return;
     }
-   
+    
+    //graph_->updateGraphUsingSamplesAndSegments(trajectories_->samples(), trajectories_->sample_tree(), trajectories_->segments(), trajectories_->data(), trajectories_->tree());
+    graph_->updateGraphUsingSamplesAndGpsPointCloud(trajectories_->samples(), trajectories_->sample_tree(),  trajectories_->data(), trajectories_->tree());
+    graph_->prepareForVisualization(bound_box_);
+    
+    // Generate information
+    QString str;
+    QTextStream(&str) << graph_->nVertices() << " vertices. " << graph_->nEdges()<< " edges.";
+    emit newGraphComputed(str);
+    updateGL();
+}
+
+void SceneWidget::slotUpdateGraph(void){
+    if (trajectories_->isEmpty()){
+        QMessageBox msgBox;
+        msgBox.setText("Please loat trajectories first.");
+        msgBox.exec();
+        return;
+    }
+    
+    if (trajectories_->samples()->size() == 0){
+        QMessageBox msgBox;
+        msgBox.setText("Please do sampling first.");
+        msgBox.exec();
+        return;
+    }
+    
+    graph_->updateGraphUsingSamplesAndSegments(trajectories_->samples(), trajectories_->sample_tree(), trajectories_->segments(), trajectories_->data(), trajectories_->tree());
+    graph_->prepareForVisualization(bound_box_);
+    
+    // Generate information
+    QString str;
+    QTextStream(&str) << graph_->nVertices() << " vertices. " << graph_->nEdges()<< " edges.";
+    emit newGraphComputed(str);
+    updateGL();
+}
+
+void SceneWidget::slotSetShowGraph(int state){
+    if (state == Qt::Unchecked)
+        show_graph_ = false;
+    else
+        show_graph_ = true;
+    updateGL();
+}
+
+void SceneWidget::slotDrawSegmentAndShortestPathInterpolation(int seg_idx){
     if (trajectories_->nSegments() == 0){
+        return;
+    }
+    printf("Segment %d selected.\n", seg_idx);
+    
+    trajectories_->clearDrawnSegments();
+    trajectories_->drawSegmentAt(seg_idx);
+    Segment &seg = trajectories_->segmentAt(seg_idx);
+    vector<int> seg_pt_idxs;
+    for(size_t i = 0; i < seg.points().size(); ++i){
+        SegPoint &pt = seg.points()[i];
+        seg_pt_idxs.push_back(pt.orig_idx);
+    }
+    
+    graph_->clearPathsToDraw();
+    graph_->drawShortestPathInterpolationFor(seg_pt_idxs);
+    
+    trajectories_->drawSegmentAt(seg_idx+1);
+    Segment &seg1 = trajectories_->segmentAt(seg_idx+1);
+    vector<int> seg_pt_idxs1;
+    for(size_t i = 0; i < seg1.points().size(); ++i){
+        SegPoint &pt = seg1.points()[i];
+        seg_pt_idxs1.push_back(pt.orig_idx);
+    }
+    graph_->drawShortestPathInterpolationFor(seg_pt_idxs1);
+    
+    printf("dist = %.2f\n", graph_->SegDistance(seg_pt_idxs, seg_pt_idxs1));
+    
+    updateGL();
+}
+
+void SceneWidget::slotSetShowSegments(int state){
+    if (state == Qt::Unchecked)
+        trajectories_->setShowSegments(false);
+    else
+        trajectories_->setShowSegments(true);
+    updateGL();
+}
+
+void SceneWidget::slotInterpolateSegments(){
+    if (graph_->nVertices() == 0) {
+        QMessageBox msgBox;
+        msgBox.setText("Please initialize graph first.");
+        msgBox.exec();
+        return;
+    }
+    
+    if (trajectories_->nSegments() == 0) {
         QMessageBox msgBox;
         msgBox.setText("Please compute segments first.");
         msgBox.exec();
         return;
     }
-    
-    bool ok;
-    double d = QInputDialog::getDouble(this, tr("Searching range"), tr("Segment extension (in meters):"), 10.0, 1.0, 250.0, 1, &ok);
-    trajectories_->toggleDrawSegmentNearSelectedSamples();
-    if (ok) {
-        if (trajectories_->drawSegment()){
-            trajectories_->selectSegmentsWithSearchRange(static_cast<float>(d));
-        }
-    }
-    updateGL();
+    clock_t begin = clock();
+    trajectories_->interpolateSegmentWithGraph(graph_);
+    clock_t end = clock();
+    double elapsed_secs = double(end - begin) / CLOCKS_PER_SEC;
+    printf("%.1f sec elapsed.\n", elapsed_secs);
 }

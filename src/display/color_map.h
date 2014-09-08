@@ -18,7 +18,7 @@ public:
         return singleton_;
     }
     
-    typedef enum {LIGHT_BLUE, DARK_GRAY} NamedColor;
+    typedef enum {LIGHT_BLUE, DARK_GRAY, LIGHT_GRAY} NamedColor;
     
     /* more (non-static) functions here */
     const Color& getNamedColor(NamedColor named_color);
@@ -34,6 +34,7 @@ private:
     std::vector<Color> continuous_;
     Color light_blue_;
     Color dark_gray_;
+    Color light_gray_;
     std::vector<Color> discrete_;
 };
 

@@ -3,6 +3,13 @@
 
 #include <string>
 #include <vector>
+#include <pcl/search/search.h>
+#include <pcl/common/common.h>
+#include "pcl_wrapper_types.h"
+
+typedef RichPoint                       PclPoint;
+typedef pcl::PointCloud<PclPoint>       PclPointCloud;
+typedef pcl::search::Search<PclPoint>   PclSearchTree;
 
 enum TrajectoryColorMode{
     UNIFORM,

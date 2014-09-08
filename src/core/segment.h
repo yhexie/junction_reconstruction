@@ -22,12 +22,13 @@ public:
     
     vector<SegPoint> &points() {return points_;}
     float &segLength() {return segLength_;}
-    
     float distanceTo(Segment &);
+    bool &quality() {return quality_;}
 
 private:
     vector<SegPoint> points_; // Relative to Trajectory.data
     float segLength_;
+    bool quality_;  // Good: true; Bad: false
 };
 
 #endif // SEGMENT_H_

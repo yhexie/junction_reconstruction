@@ -15,6 +15,7 @@ class QMenu;
 class Trajectories;
 class Samples;
 class OpenStreetMap;
+class Graph;
 
 class SceneWidget : public QGLWidget
 {
@@ -32,29 +33,56 @@ public:
     void drawSelectedTraj(vector<int> &idx);
     
 signals:
+    // Trajectories
     void trajFileLoaded(QString &filename, const size_t &numTraj, const size_t &numPoint);
+    
+    // Map
     void osmFileLoaded(QString &filename);
     
+    // Samples
+    void newSamplesDrawn(QString &);
+    
+    // Segments
+    void newSegmentsComputed(QString &);
+    
+    // Graph
+    void newGraphComputed(QString &);
+    
     public slots:
+    // Trajectories
     void slotOpenTrajectories(void);
     void slotOpenTrajectoriesFromFile(const QString &filename);
     void slotSaveTrajectories(void);
+    void slotExtractTrajectories(void);
+    void slotComputePointCloudVariance(void);
     
+    // Map
     void slotOpenOsmMap(void);
     void slotOpenOsmMapFromFile(const QString &filename);
     void slotSetShowMap(int state);
     
+    // Samples
     void slotSamplePointCloud(void);
-    void slotGenerateSegments(void);
-    void resetView(void);
-    void clearData(void);
-    void slotExtractTrajectories(void);
-    
     void slotEnterSampleSelectionMode(void);
     void slotClearPickedSamples(void);
+    void slotSetShowSamples(int);
+    void slotClusterSegmentsAtSample(void);
     
-    void slotToggleSegmentsAtPickedSamples(void);
-    //void slotOpenOsmFile(QModelIndex index);
+    // Segments
+    void slotGenerateSegments(void);
+    void slotSampleCoverDistanceChange(double);
+    void slotDrawSegmentAndShortestPathInterpolation(int seg_idx);
+    void slotSetShowSegments(int);
+    void slotInterpolateSegments(void);
+    
+    // Graph
+    void slotInitializeGraph(void);
+    void slotSetShowGraph(int state);
+    void slotUpdateGraph();
+    
+    // Others
+    void resetView(void);
+    void clearData(void);
     
 protected:
     void mousePressEvent(QMouseEvent *event);
@@ -96,6 +124,10 @@ private:
     // OpenStreetMap container
     OpenStreetMap                       *osmMap_;
     bool                                show_map_;
+    
+    // Graph container
+    bool                                show_graph_;
+    Graph                               *graph_;
     
     // Visualization mode
     bool                                selection_mode_;

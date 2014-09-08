@@ -42,7 +42,12 @@ public:
     
 	void showInformation(const std::string& information);
 	void showStatus(const std::string& status, int timeout=0);
+    void showInStatusBar(const QString &str);
     
+    double getSigmaValue() {return ui_->sigmaValue->value(); }
+    double getThresholdValue() { return ui_->thresholdValue->value(); }
+    int getMinClusterSize() {return ui_->minClusterSize->value(); }
+   
 	const std::string& getWorkspace(void) const {return workspace_;}
     
     public slots:
@@ -52,6 +57,7 @@ public:
 signals:
     void keyDownPressed(void);
 	void showInformationRequested(const QString& information);
+    void showStatusInformation(const QString &str);
 	void showStatusRequested(const QString& status, int timeout);
     void newOsmFileSelected(const QString &filename);
     void newTrajFileSelected(const QString &filename);
@@ -66,17 +72,19 @@ protected:
 private slots:
     bool slotSetWorkspace(void);
 	void slotShowInformation(const QString& information);
+    void slotShowStatusInformation(const QString &str);
 	void slotShowStatus(const QString& status, int timeout);
-    void slotOsmDirSelected(QModelIndex index);
     void slotTrajFileLoaded(QString &filename, const size_t &numTraj, const size_t &numPoint);
     void slotOsmFileLoaded(QString &filename);
+    void slotNewSamplesDrawn(QString &);
+    void slotNewSegmentsComputed(QString &);
+    void slotNewGraphComputed(QString &);
     
 private:
     void loadSettings();
     void saveSettings();
     void saveStatusLog();
     
-    QFileSystemModel                *osmFileModel;
     TrajListModel                   *trajListModel;
     Ui::MainWindowClass             *ui_;
     std::string                     workspace_;

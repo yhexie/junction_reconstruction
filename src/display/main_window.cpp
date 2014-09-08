@@ -48,7 +48,6 @@ QMainWindow(parent), ui_(new Ui::MainWindowClass), workspace_(".")
 MainWindow::~MainWindow()
 {
     delete ui_;
-    delete osmFileModel;
     delete trajListModel;
     saveSettings();
     return;
@@ -69,21 +68,13 @@ void MainWindow::slotShowStatus(const QString& status, int timeout)
     
 }
 
-void MainWindow::slotOsmDirSelected(QModelIndex index){
-    if (osmFileModel->isDir(index)) {
-        ui_->osmDirView->setRootIndex(osmFileModel->setRootPath(osmFileModel->fileInfo(index).absoluteFilePath()));
-        return;
-    }
-    
-    // Check file extension
-    if (osmFileModel->fileInfo(index).fileName().endsWith(".osm")) {
-        emit newOsmFileSelected(osmFileModel->filePath(index));
-    }
-}
-
 void MainWindow::showStatus(const std::string& status, int timeout)
 {
 	emit showStatusRequested(status.c_str(), timeout);
+}
+
+void MainWindow::showInStatusBar(const QString &str){
+    emit showStatusInformation(str);
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
@@ -113,7 +104,10 @@ void MainWindow::keyPressEvent(QKeyEvent* event)
             ui_->scene_widget->resetView();
             break;
         case Qt::Key_C:
-            ui_->scene_widget->clearData();
+            ui_->scene_widget->slotClearPickedSamples();
+            break;
+        case Qt::Key_P:
+            ui_->scene_widget->slotEnterSampleSelectionMode();
             break;
         default:
             break;
@@ -139,6 +133,7 @@ void MainWindow::init(void)
     setMouseTracking(true);
     
     connect(this, SIGNAL(showInformationRequested(const QString&)), this, SLOT(slotShowInformation(const QString&)));
+    connect(this, SIGNAL(showStatusInformation(const QString&)), this, SLOT(slotShowStatusInformation(const QString&)));
     connect(ui_->actionOpenTrajectories, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotOpenTrajectories()));
     connect(ui_->actionOpenOsmMap, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotOpenOsmMap()));
 
@@ -157,23 +152,7 @@ void MainWindow::init(void)
     connect(ui_->actionGenerateSegments, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotGenerateSegments()));
     connect(ui_->actionPickSample, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotEnterSampleSelectionMode()));
     connect(ui_->actionClearPickedSamples, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotClearPickedSamples()));
-    connect(ui_->actionToggleSegmentsAtSample, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotToggleSegmentsAtPickedSamples()));
-    
-    // Directory View
-    osmFileModel = new QFileSystemModel(this);
-    osmFileModel->setFilter(QDir::Files | QDir::AllDirs | QDir::NoDot);
-    
-    ui_->osmDirView->setModel(osmFileModel);
-    ui_->osmDirView->setColumnWidth(0, 200);
-    ui_->osmDirView->hideColumn(2);
-    ui_->osmDirView->hideColumn(3);
-    ui_->osmDirView->setRootIndex(osmFileModel->setRootPath(QDir::currentPath()));
-    
-    connect(ui_->showMapCheckBox, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotSetShowMap(int)));
-    connect(this, SIGNAL(newOsmFileSelected(const QString &)), ui_->scene_widget, SLOT(slotOpenOsmMapFromFile(const QString &)));
-    connect(ui_->scene_widget, SIGNAL(osmFileLoaded(QString &)), this, SLOT(slotOsmFileLoaded(QString &)));
-    
-    connect(ui_->osmDirView, SIGNAL(doubleClicked(QModelIndex)), this, SLOT(slotOsmDirSelected(QModelIndex)));
+    connect(ui_->actionInitializeGraph, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotInitializeGraph()));
     
     // Trajectory View
     trajListModel = new TrajListModel(this);
@@ -182,6 +161,29 @@ void MainWindow::init(void)
     connect(ui_->scene_widget, SIGNAL(trajFileLoaded(QString &, const size_t &, const size_t &)), this, SLOT(slotTrajFileLoaded(QString &, const size_t &, const size_t &)));
     connect(this, SIGNAL(trajNumberChanged(int)), trajListModel, SLOT(setNumTraj(int)));
     connect(ui_->trajListView->selectionModel(), SIGNAL(selectionChanged(QItemSelection, QItemSelection)), this, SLOT(slotTrajSelectionChanged()));
+    connect(ui_->computeVariance, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotComputePointCloudVariance()));
+    
+    // Map View
+    connect(ui_->showMapCheckBox, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotSetShowMap(int)));
+    connect(this, SIGNAL(newOsmFileSelected(const QString &)), ui_->scene_widget, SLOT(slotOpenOsmMapFromFile(const QString &)));
+    connect(ui_->scene_widget, SIGNAL(osmFileLoaded(QString &)), this, SLOT(slotOsmFileLoaded(QString &)));
+    
+    // Sample View
+    connect(ui_->showSampleCheckBox, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotSetShowSamples(int)));
+    connect(ui_->scene_widget, SIGNAL(newSamplesDrawn(QString &)), this, SLOT(slotNewSamplesDrawn(QString &)));
+    connect(ui_->sampleCoverDistanceSpinBox, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotSampleCoverDistanceChange(double)));
+    connect(ui_->clusterSegments, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotClusterSegmentsAtSample()));
+    
+    // Segment View
+    connect(ui_->showSegmentCheckBox, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotSetShowSegments(int)));
+
+    connect(ui_->segmentIdx, SIGNAL(valueChanged(int)), ui_->scene_widget, SLOT(slotDrawSegmentAndShortestPathInterpolation(int)));
+    
+    // Graph View
+    connect(ui_->showGraphCheckBox, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotSetShowGraph(int)));
+    connect(ui_->scene_widget, SIGNAL(newGraphComputed(QString &)), this, SLOT(slotNewGraphComputed(QString &)));
+    connect(ui_->actionUpdateGraph, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotUpdateGraph()));
+    connect(ui_->actionInterpolateSegments, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotInterpolateSegments()));
     
     return;
 }
@@ -231,14 +233,29 @@ bool MainWindow::slotShowYesNoMessageBox(const std::string& text, const std::str
 
 void MainWindow::slotTrajFileLoaded(QString &filename, const size_t &numTraj, const size_t &numPoint){
     QString str;
-    QTextStream(&str) << numTraj << " trajectories, " << numPoint <<" points.";
+    QFileInfo info(filename);
+    QTextStream(&str) << "Filename: " << info.baseName() << "." << info.completeSuffix() <<"\n" << numTraj << " trajectories, " << numPoint <<" points.";
     ui_->trajInfo->setText(str);
     emit trajNumberChanged(numTraj);
 }
 
 void MainWindow::slotOsmFileLoaded(QString &filename){
-    ui_->osmDirView->setRootIndex(osmFileModel->setRootPath(QFileInfo(filename).absoluteDir().absolutePath()));
-    ui_->osmDirView->setCurrentIndex(osmFileModel->index(filename));
+    QString str;
+    QFileInfo info(filename);
+    QTextStream(&str) << info.baseName() << "." << info.completeSuffix() <<" is loaded.";
+    ui_->mapInfo->setText(str);
+}
+
+void MainWindow::slotNewSamplesDrawn(QString &info){
+    ui_->sampleInfoLabel->setText(info);
+}
+
+void MainWindow::slotNewSegmentsComputed(QString &info){
+    ui_->segmentInfoLabel->setText(info);
+}
+
+void MainWindow::slotNewGraphComputed(QString &info){
+    ui_->graphInfoLabel->setText(info);
 }
 
 void MainWindow::slotTrajSelectionChanged(){
@@ -251,4 +268,8 @@ void MainWindow::slotTrajSelectionChanged(){
     }
     ui_->scene_widget->drawSelectedTraj(selectedTrajIdx);
     ui_->statusBar->showMessage("Selection Mode : ON");
+}
+
+void MainWindow::slotShowStatusInformation(const QString &str){
+    ui_->statusBar->showMessage(str);
 }

@@ -68,15 +68,15 @@ static const double continuous[64][4] = {
 };
 
 static const double discrete[20][4] = {
-    {0.2500,		0.9400,		0.3000, 1.0},
-    {0.5804,		0.0000,		0.8275, 1.0},
-    {0.2000,		0.2000,		0.8000, 1.0},
-    {0.1000,		0.0000,		0.5020, 1.0},
-    {0.0000,		0.3569,		0.5020, 1.0},
-    {0.3750,		0.5625,		0.0000, 1.0},
-    {0.0000,		0.6100,		0.5800, 1.0},
-    {0.8600,		0.0000,		0.3500, 1.0},
-    {0.6900,		0.3725,		0.2353, 1.0},
+    {1.0,		0.0,		0.0,        1.0},
+    {0.0,		1.0,		0.0,        1.0},
+    {0.0,		0.0,		1.0,        1.0},
+    {1.0,		0.5,		0.0,        1.0},
+    {0.0,		1.0,		0.5,        1.0},
+    {0.5,		0.0,		1.0,        1.0},
+    {1.0,		0.0,		1.0,        1.0},
+    {0.0,		1.0,		1.0,        1.0},
+    {1.0,		1.0,		0.0,        1.0},
     {0.0000,		1.0000,		0.4980, 1.0},
     {0.0000,		0.3922,		0.0000, 1.0},
 	{0.8627,		0.0784,		0.2353, 1.0},
@@ -90,7 +90,7 @@ static const double discrete[20][4] = {
     {0.8000,		0.0000,		0.2000, 1.0}
 };
 
-ColorMap::ColorMap() : light_blue_(Color(0.2f, 0.2f, 1.0f, 1.0f)), dark_gray_(Color(0.3, 0.3, 0.3, 1.0f))
+ColorMap::ColorMap() : light_blue_(Color(0.2f, 0.2f, 1.0f, 1.0f)), dark_gray_(Color(0.3, 0.3, 0.3, 1.0f)), light_gray_(Color(0.7f, 0.7f, 0.7f, 1.0f))
 {
     for (size_t i = 0, iEnd = 64; i < iEnd; ++ i) {
         continuous_.push_back(Color(continuous[i][0], continuous[i][1], continuous[i][2], continuous[i][3]));
@@ -111,6 +111,9 @@ const Color& ColorMap::getNamedColor(NamedColor named_color)
             break;
         case DARK_GRAY:
             return dark_gray_;
+            break;
+        case LIGHT_GRAY:
+            return light_gray_;
             break;
         default:
             return light_blue_;
