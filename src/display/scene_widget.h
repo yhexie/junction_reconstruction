@@ -35,6 +35,7 @@ public:
 signals:
     // Trajectories
     void trajFileLoaded(QString &filename, const size_t &numTraj, const size_t &numPoint);
+    void nClusterComputed(int &n_cluster);
     
     // Map
     void osmFileLoaded(QString &filename);
@@ -55,6 +56,8 @@ signals:
     void slotSaveTrajectories(void);
     void slotExtractTrajectories(void);
     void slotComputePointCloudVariance(void);
+    void slotSetShowDistanceGraph(int state);
+    void slotComputeDistanceGraph();
     
     // Map
     void slotOpenOsmMap(void);
@@ -67,6 +70,8 @@ signals:
     void slotClearPickedSamples(void);
     void slotSetShowSamples(int);
     void slotClusterSegmentsAtSample(void);
+    void slotClusterSegmentsAtAllSamples(void);
+    void slotPickClusterAtIdx(int);
     
     // Segments
     void slotGenerateSegments(void);

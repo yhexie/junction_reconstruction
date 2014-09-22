@@ -7,11 +7,11 @@
 #include "color_map.h"
 #include "segment.h"
 #include "renderable.h"
-#include "segment.h"
 
 #include <iostream>
 #include <boost/graph/astar_search.hpp>
 #include <boost/graph/adjacency_list.hpp>
+#include <opencv2/opencv.hpp>
 
 using namespace std;
 using namespace boost;
@@ -38,15 +38,17 @@ public:
     int nEdges(void) {return edge_idxs_.size()/2;}
    
     void updateGraphUsingSamplesAndGpsPointCloud(PclPointCloud::Ptr &, PclSearchTree::Ptr &, PclPointCloud::Ptr &, PclSearchTree::Ptr &);
-    void updateGraphUsingSamplesAndSegments(PclPointCloud::Ptr &, PclSearchTree::Ptr &, vector<Segment> &, PclPointCloud::Ptr &, PclSearchTree::Ptr &);
+    void updateGraphUsingSamplesAndSegments(PclPointCloud::Ptr &, PclSearchTree::Ptr &, vector<Segment> &, vector<vector<int>> &, vector<vector<int>> &, PclPointCloud::Ptr &, PclSearchTree::Ptr &);
+    void updateGraphUsingDescriptor(PclPointCloud::Ptr &cluster_centers, PclSearchTree::Ptr &cluster_center_search_tree, cv::Mat *descriptors, vector<int> &cluster_popularity, PclPointCloud::Ptr &, PclSearchTree::Ptr &);
     
     // Shortest path from source and destination
-    void shortestPath(int , int , vector<int>&);
+    bool shortestPath(int , int , vector<int>&);
     
     // Shortest path interpolation
     void shortestPathInterpolation(vector<int> &query_path, vector<int> &result_path);
     
     // Graph dynamic time warping distance
+    float simpleSegDistance(Segment &seg1, Segment &seg2);
     float SegDistance(vector<int> &query_path1, vector<int> &query_path2);
     float DTWDistance(vector<int> &path1, vector<int> &path2);
     float Distance(int, int, bool, bool, bool, bool);

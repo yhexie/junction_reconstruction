@@ -1,10 +1,9 @@
 #include "graph.h"
 #include <ctime>
 #include <Eigen/Dense>
+#include <algorithm>
 using namespace Eigen;
 
-static const float Z_GRAPH = -0.3f;
-static const float Z_PATH = -0.2f;
 static const float arrow_size = 5.0f;   // in meters
 static const int arrow_angle = 15; // in degrees
 
@@ -131,7 +130,7 @@ void Graph::draw(){
     // Draw paths
     if(paths_to_draw_.size() == 0)
         return;
-   
+    
     vector<Vertex>  path_vertices;
     vector<Color>   path_colors;
     vector<vector<int>> path_idxs;
@@ -202,13 +201,13 @@ void Graph::prepareForVisualization(QVector4D bound_box){
         float n_y = (point.y - center_y) / scale_factor_;
         normalized_vertices_locs_.push_back(Vertex(n_x, n_y, Z_GRAPH));
     }
-   
+    
     Color dark_gray = ColorMap::getInstance().getNamedColor(ColorMap::DARK_GRAY);
     vertex_colors_.resize(vertices_->size(), dark_gray);
     
     if(edge_idxs_.size() == 0)
         return;
-   
+    
     float arrow_length = arrow_size / scale_factor_;
     int n_edge = edge_idxs_.size() / 2;
     
@@ -219,7 +218,7 @@ void Graph::prepareForVisualization(QVector4D bound_box){
         float dx = normalized_vertices_locs_[to].x - normalized_vertices_locs_[from].x;
         float dy = normalized_vertices_locs_[to].y  - normalized_vertices_locs_[from].y;
         float length = sqrt(dx*dx + dy*dy);
-       
+        
         dx = dx / length * arrow_length;
         dy = dy / length * arrow_length;
         QVector3D vec(dx, dy, 0.0);
@@ -242,6 +241,187 @@ void Graph::prepareForVisualization(QVector4D bound_box){
         edge_direction_colors_.push_back(dark_gray);
         edge_direction_colors_.push_back(dark_gray);
         edge_direction_colors_.push_back(dark_gray);
+    }
+}
+
+void Graph::updateGraphUsingDescriptor(PclPointCloud::Ptr &cluster_centers, PclSearchTree::Ptr &cluster_center_search_tree, cv::Mat *descriptors, vector<int> &cluster_popularity, PclPointCloud::Ptr &gps_pointcloud, PclSearchTree::Ptr &gps_pointcloud_search_tree){
+    // Reset point clouds
+    vertices_ = cluster_centers;
+    tree_ = cluster_center_search_tree;
+    
+    gps_pointcloud_ = gps_pointcloud;
+    gps_pointcloud_search_tree_ = gps_pointcloud_search_tree;
+    
+    edge_idxs_.clear();
+    int num_nodes = cluster_centers->size();
+    g_ = new graph_t(num_nodes);
+    locations_.clear();
+    locations_.resize(num_nodes);
+    for (size_t pt_idx = 0; pt_idx < cluster_centers->size(); ++pt_idx) {
+        PclPoint &pt = cluster_centers->at(pt_idx);
+        locations_[pt_idx].x = pt.x;
+        locations_[pt_idx].y = pt.y;
+    }
+    
+    typedef graph_t::vertex_descriptor vertex;
+    typedef graph_t::edge_descriptor edge_descriptor;
+    WeightMap weightmap = get(edge_weight, *g_);
+    float SEARCH_RANGE = 30.0f; // in meters
+    float MIN_DISTANCE_SQUARE = 225.0f; // in meters^2
+    float MIN_DISTANCE_SQUARE_FOR_EDGE = 225.0f; // in meters^2
+    int K = 2;
+    for (size_t sample_idx = 0; sample_idx < cluster_centers->size(); ++sample_idx) {
+        vector<int> k_indices;
+        vector<float> k_distances;
+        
+        cv::Mat d1 = descriptors->row(sample_idx);
+        tree_->radiusSearch(cluster_centers->at(sample_idx), SEARCH_RANGE, k_indices, k_distances);
+       
+        vector<int> to_idxs_in_indices;
+        vector<float> descriptor_distances;
+        vector<float> to_sort;
+        for (size_t neighbor_idx = 0; neighbor_idx < k_indices.size(); ++neighbor_idx) {
+            if (k_distances[neighbor_idx] < MIN_DISTANCE_SQUARE_FOR_EDGE) {
+                // Add edge
+                if(k_distances[neighbor_idx] > 0.1){
+                    int to_idx = k_indices[neighbor_idx];
+                    // Check edge compatibility with the descriptor
+                    float delta_x = cluster_centers->at(to_idx).x - cluster_centers->at(sample_idx).x;
+                    float delta_y = cluster_centers->at(to_idx).y - cluster_centers->at(sample_idx).y;
+                    float r = sqrt(delta_x*delta_x + delta_y*delta_y);
+                    float cos_value = delta_x / r;
+                    float theta = acos(cos_value) * 180.0f / PI;
+                    if (delta_y < 0) {
+                        theta += 180;
+                    }
+                    int theta_bin_id;
+                    if (theta > 45.0f && theta <= 135.0f) {
+                        theta_bin_id = 1;
+                    }
+                    else if (theta > 135.0f && theta <= 225.0f){
+                        theta_bin_id = 2;
+                    }
+                    else if (theta > 225.0f && theta <= 315.0f){
+                        theta_bin_id = 3;
+                    }
+                    else{
+                        theta_bin_id = 0;
+                    }
+                    
+                    int bin_1_id = theta_bin_id + 8;
+                    int bin_2_id = theta_bin_id + 4 + 8;
+                    bool is_compatible = false;
+                    if (d1.at<float>(0, bin_1_id) > 1e-3) {
+                        is_compatible = true;
+                    }
+                    if (d1.at<float>(0, bin_2_id) > 1e-3) {
+                        is_compatible = true;
+                    }
+                
+                    if (is_compatible) {
+                        edge_descriptor e;
+                        bool inserted;
+                        tie(e, inserted) = add_edge(sample_idx, to_idx, *g_);
+                        float edge_weight = sqrt(k_distances[neighbor_idx]);
+                        weightmap[e] = edge_weight;
+                        edge_idxs_.push_back(sample_idx);
+                        edge_idxs_.push_back(to_idx);
+                    }
+                }
+                continue;
+            }
+            
+            if (k_distances[neighbor_idx] < MIN_DISTANCE_SQUARE) {
+                continue;
+            }
+            
+            if (cv::norm(d1) < 0.1)
+                continue;
+            
+            size_t to_idx = static_cast<size_t>(k_indices[neighbor_idx]);
+            // Compare descriptor distance
+            to_idxs_in_indices.push_back(neighbor_idx);
+            cv::Mat d2 = descriptors->row(to_idx);
+            float descriptor_distance = cv::norm(d2-d1);
+            if (cv::norm(d2) < 0.1) {
+                continue;
+            }
+            
+            // Check edge compatibility with the descriptor
+            float delta_x = cluster_centers->at(to_idx).x - cluster_centers->at(sample_idx).x;
+            float delta_y = cluster_centers->at(to_idx).y - cluster_centers->at(sample_idx).y;
+            float r = sqrt(delta_x*delta_x + delta_y*delta_y);
+            float cos_value = delta_x / r;
+            float theta = acos(cos_value) * 180.0f / PI;
+            if (delta_y < 0) {
+                theta += 180;
+            }
+            int theta_bin_id;
+            if (theta > 45.0f && theta <= 135.0f) {
+                theta_bin_id = 1;
+            }
+            else if (theta > 135.0f && theta <= 225.0f){
+                theta_bin_id = 2;
+            }
+            else if (theta > 225.0f && theta <= 315.0f){
+                theta_bin_id = 3;
+            }
+            else{
+                theta_bin_id = 0;
+            }
+            
+            int bin_1_id = theta_bin_id + 8;
+            int bin_2_id = theta_bin_id + 4 + 8;
+            bool is_compatible = false;
+            if (d1.at<float>(0, bin_1_id) > 1e-3) {
+                is_compatible = true;
+            }
+            if (d1.at<float>(0, bin_2_id) > 1e-3) {
+                is_compatible = true;
+            }
+            
+            if (!is_compatible) {
+                descriptor_distance *= 100;
+            }
+            
+            descriptor_distances.push_back(descriptor_distance);
+            to_sort.push_back(descriptor_distance);
+        }
+        
+        if (to_sort.size() == 0)
+            continue;
+        
+        std::sort(to_sort.begin(), to_sort.end());
+        int range_idx = to_sort.size() - 1;
+        if (to_sort.size() > K) {
+            range_idx = K;
+        }
+        
+        float range_dist = to_sort[K];
+        int n_visited = 0;
+        for (size_t i = 0; i < descriptor_distances.size(); ++i) {
+            if (descriptor_distances[i] <= range_dist) {
+                // Add edge
+                int to_idx = k_indices[to_idxs_in_indices[i]];
+                int popularity = (cluster_popularity[sample_idx] < cluster_popularity[to_idx]) ? cluster_popularity[sample_idx] : cluster_popularity[to_idx] + 1;
+                
+                float dist = sqrt(k_distances[to_idxs_in_indices[i]]);
+                dist /= popularity;
+                
+                edge_descriptor e;
+                bool inserted;
+                tie(e, inserted) = add_edge(sample_idx, to_idx, *g_);
+                float edge_weight = dist; //* descriptor_distances[i];
+                weightmap[e] = edge_weight;
+                edge_idxs_.push_back(sample_idx);
+                edge_idxs_.push_back(to_idx);
+                n_visited += 1;
+                if (n_visited >= K) {
+                    break;
+                }
+            }
+        }
+        
     }
 }
 
@@ -271,7 +451,7 @@ void Graph::updateGraphUsingSamplesAndGpsPointCloud(PclPointCloud::Ptr &samples,
         vector<int> k_indices;
         vector<float> k_distances;
         tree_->nearestKSearch(samples->at(sample_idx), 10, k_indices, k_distances);
-       
+        
         for (size_t neighbor_idx = 0; neighbor_idx < k_indices.size(); ++neighbor_idx) {
             size_t to_idx = static_cast<size_t>(k_indices[neighbor_idx]);
             if (to_idx <= sample_idx) {
@@ -287,7 +467,7 @@ void Graph::updateGraphUsingSamplesAndGpsPointCloud(PclPointCloud::Ptr &samples,
             vector<float> nearby_pt_dists;
             
             gps_pointcloud_search_tree_->radiusSearch(samples->at(sample_idx), edge_length, nearby_pt_idxs, nearby_pt_dists);
-           
+            
             int n_knots = static_cast<int>(edge_length);
             vector<float> density(n_knots, 0.0f);
             for (size_t i = 0; i < nearby_pt_idxs.size(); ++i) {
@@ -336,7 +516,19 @@ void Graph::updateGraphUsingSamplesAndGpsPointCloud(PclPointCloud::Ptr &samples,
     }
 }
 
-void Graph::updateGraphUsingSamplesAndSegments(PclPointCloud::Ptr &samples, PclSearchTree::Ptr &sample_search_tree, vector<Segment> &segments, PclPointCloud::Ptr &gps_pointcloud, PclSearchTree::Ptr &gps_pointcloud_search_tree){
+void Graph::updateGraphUsingSamplesAndSegments(PclPointCloud::Ptr &samples, PclSearchTree::Ptr &sample_search_tree, vector<Segment> &segments, vector<vector<int>> &cluster_centers, vector<vector<int>> &cluster_sizes, PclPointCloud::Ptr &gps_pointcloud, PclSearchTree::Ptr &gps_pointcloud_search_tree){
+    /*
+     This function generate a graph by connecting sample points based on the compatibility of their corresponding segment cluster centers. Each sample point has several clustered segment center, and we compute the pairwise distances between these segment centers and decide whether a directional edge should be added to the graph. The target use of the resulting graph is to interpolate sparse trajectories to generate denser trajectories.
+     
+     Parameters:
+     - samples: sample point cloud pointer;
+     - sample_search_tree: sample point cloud kdtree pointer;
+     - segments: reference to a lists of all segments extracted;
+     - cluster_centers: each element is a list of segment idxs for each sample pointj;
+     - gps_pointcloud: original gps point cloud pointer;
+     - gps_pointcloud_search_tree: gps point cloud kdtree pointer.
+     */
+    
     // Reset point clouds
     vertices_ = samples;
     tree_ = sample_search_tree;
@@ -346,29 +538,14 @@ void Graph::updateGraphUsingSamplesAndSegments(PclPointCloud::Ptr &samples, PclS
     
     edge_idxs_.clear();
     int num_nodes = samples->size();
-   
-    // Interpolate segments using current graph.
-    clock_t begin = clock();
-    vector<vector<int>> interpolated_segments(segments.size());
-    for (size_t seg_id = 0; seg_id < segments.size(); ++seg_id) {
-        if (seg_id % 10000 == 0)
-            printf("Now at segment %lu\n", seg_id);
-        Segment &seg = segments[seg_id];
-        vector<int> seg_pt_idxs;
-        for (size_t i = 0; i < seg.points().size(); ++i) {
-            SegPoint &pt = seg.points()[i];
-            seg_pt_idxs.push_back(pt.orig_idx);
-        }
-        vector<int> &result_path = interpolated_segments[seg_id];
-        shortestPathInterpolation(seg_pt_idxs, result_path);
+    
+    if (g_ != NULL) {
+        delete g_;
     }
     
-    clock_t end = clock();
-    double elapsed_secs = double(end - begin) / CLOCKS_PER_SEC;
-    printf("time elapsed: %.1f sec.\n", elapsed_secs);
+    g_ = new graph_t(num_nodes);
     
-    graph_t *new_g = new graph_t(num_nodes);
-    
+    // Copy sample locations to locations_ for graph initialization.
     locations_.clear();
     locations_.resize(num_nodes);
     for (size_t pt_idx = 0; pt_idx < samples->size(); ++pt_idx) {
@@ -379,74 +556,143 @@ void Graph::updateGraphUsingSamplesAndSegments(PclPointCloud::Ptr &samples, PclS
     
     typedef graph_t::vertex_descriptor vertex;
     typedef graph_t::edge_descriptor edge_descriptor;
-    WeightMap weightmap = get(edge_weight, *new_g);
+    WeightMap weightmap = get(edge_weight, *g_);
+    
+    // Iterate over the samples
     for (size_t sample_idx = 0; sample_idx < samples->size(); ++sample_idx) {
+        // Find nearby other samples
         vector<int> k_indices;
         vector<float> k_distances;
-        tree_->nearestKSearch(vertices_->at(sample_idx), 10, k_indices, k_distances);
-        
-        // Get nearby segments for sample_idx
-        vector<int> from_gps_point;
-        vector<float> from_gps_distance;
-        gps_pointcloud_search_tree_->radiusSearch(vertices_->at(sample_idx), 10, from_gps_point, from_gps_distance);
+        tree_->nearestKSearch(samples->at(sample_idx), 11, k_indices, k_distances);
         
         for (size_t neighbor_idx = 0; neighbor_idx < k_indices.size(); ++neighbor_idx) {
             size_t to_idx = static_cast<size_t>(k_indices[neighbor_idx]);
-            if (to_idx == sample_idx) {
+            
+            if (to_idx < sample_idx) {
                 continue;
             }
-            vector<int> edge_path;
-            shortestPath(sample_idx, to_idx, edge_path);
             
-            // Compute distance between edge_path and source segments
-            float source_compatibility = 1e6;
-            for (size_t i = 0; i < from_gps_point.size(); ++i){
-                int seg_id = from_gps_point[i];
-                float dist = DTWDistance(edge_path, interpolated_segments[seg_id]);
-                if (dist < source_compatibility) {
-                    source_compatibility = dist;
+            // Check the compatibility between its cluster centers
+            vector<int> &from_cluster_centers = cluster_centers[sample_idx];
+            vector<int> &to_cluster_centers = cluster_centers[to_idx];
+            Vector2d v(vertices_->at(to_idx).x - vertices_->at(sample_idx).x,
+                       vertices_->at(to_idx).y - vertices_->at(sample_idx).y);
+            
+            float edge_length = v.norm();
+            v.normalize();
+            
+            vector<int> nearby_pt_idxs;
+            vector<float> nearby_pt_dists;
+            
+            gps_pointcloud_search_tree_->radiusSearch(samples->at(sample_idx), edge_length, nearby_pt_idxs, nearby_pt_dists);
+            
+            int n_knots = static_cast<int>(edge_length);
+            vector<float> density(n_knots, 0.0f);
+            for (size_t i = 0; i < nearby_pt_idxs.size(); ++i) {
+                int pt_idx = nearby_pt_idxs[i];
+                Vector2d v1(gps_pointcloud_->at(pt_idx).x - vertices_->at(sample_idx).x,
+                            gps_pointcloud_->at(pt_idx).y - vertices_->at(sample_idx).y);
+                float v1_length = v1.norm();
+                float dot_value = v1.dot(v);
+                
+                float v_dist = sqrt(v1_length*v1_length - dot_value*dot_value);
+                if (v_dist > 3.0f) {
+                    continue;
+                }
+                
+                if (dot_value >= 0 && dot_value <= edge_length) {
+                    for (int j = 0; j < n_knots; ++j) {
+                        float delta = dot_value - j;
+                        density[j] += exp(-1*delta*delta/2.0f);
+                    }
                 }
             }
-           
-            vector<int> to_gps_point;
-            vector<float> to_gps_distance;
-            gps_pointcloud_search_tree_->radiusSearch(vertices_->at(to_idx), 10, to_gps_point, to_gps_distance);
             
-            // Compute distance between edge_path and dst segments
-            float dst_compatibility = 1e6;
-            for (size_t i = 0; i < to_gps_point.size(); ++i){
-                int seg_id = to_gps_point[i];
-                float dist = DTWDistance(edge_path, interpolated_segments[seg_id]);
-                if (dist < dst_compatibility) {
-                    dst_compatibility = dist;
+            float pt_density = 1e6;
+            for (int i = 0; i < n_knots; ++i) {
+                if (pt_density > density[i]) {
+                    pt_density = density[i];
                 }
             }
             
-            if(source_compatibility < 50.0f && dst_compatibility < 50.0f){
-                // Add an edge
-                edge_descriptor e;
-                bool inserted;
-                tie(e, inserted) = add_edge(sample_idx, to_idx, *g_);
-                weightmap[e] = sqrt(k_distances[neighbor_idx]);
-                edge_idxs_.push_back(sample_idx);
-                edge_idxs_.push_back(to_idx);
+            if (pt_density < 1.0f) {
+                continue;
+            }
+            
+            bool edge_inserted = false;
+            bool reverse_edge_inserted = false;
+            for (size_t c1 = 0; c1 < from_cluster_centers.size(); ++c1) {
+                for (size_t c2 = 0; c2 < to_cluster_centers.size(); ++c2) {
+                    Segment &seg1 = segments[from_cluster_centers[c1]];
+                    Segment &seg2 = segments[to_cluster_centers[c2]];
+                    float distance = simpleSegDistance(seg1, seg2);
+                    if (distance < 100) {
+                        if (edge_inserted && reverse_edge_inserted) {
+                            break;
+                        }
+                        
+                        int cluster_size1 = cluster_sizes[sample_idx][c1];
+                        int cluster_size2 = cluster_sizes[to_idx][c2];
+                        int cluster_size = (cluster_size1 < cluster_size2) ? cluster_size1 : cluster_size2;
+                        printf("cluster_size = %d\n", cluster_size);
+                        
+                        int seg1_size = seg1.points().size();
+                        Vector2d v1(seg1.points()[seg1_size-1].x - vertices_->at(sample_idx).x,
+                                    seg1.points()[seg1_size-1].y - vertices_->at(sample_idx).y);
+                        Vector2d v2(vertices_->at(to_idx).x - seg2.points()[0].x,
+                                    vertices_->at(to_idx).y - seg2.points()[0].y);
+                        bool dot1_positive = false;
+                        bool dot2_positive = false;
+                        if (v.dot(v1) > 0) {
+                            dot1_positive = true;
+                        }
+                        if (v.dot(v2) > 0) {
+                            dot2_positive = true;
+                        }
+                        
+                        if (dot1_positive && dot2_positive && !edge_inserted){
+                            // Add an edge
+                            edge_descriptor e;
+                            bool inserted;
+                            tie(e, inserted) = add_edge(sample_idx, to_idx, *g_);
+                            float edge_weight = v.norm();
+                            weightmap[e] = edge_weight / cluster_size;
+                            edge_idxs_.push_back(sample_idx);
+                            edge_idxs_.push_back(to_idx);
+                            edge_inserted = true;
+                        }
+                        
+                        if (!dot1_positive && !dot2_positive && !reverse_edge_inserted) {
+                            // Add an edge
+                            edge_descriptor e;
+                            bool inserted;
+                            tie(e, inserted) = add_edge(to_idx, sample_idx, *g_);
+                            float edge_weight = v.norm();
+                            weightmap[e] = edge_weight / cluster_size;
+                            edge_idxs_.push_back(to_idx);
+                            edge_idxs_.push_back(sample_idx);
+                            reverse_edge_inserted = true;
+                        }
+                    }
+                }
+                
+                if (edge_inserted && reverse_edge_inserted) {
+                    break;
+                }
             }
         }
     }
-    
-    delete g_;
-    g_ = new_g;
 }
 
-void Graph::shortestPath(int start, int goal, vector<int> &path){
+bool Graph::shortestPath(int start, int goal, vector<int> &path){
     if (vertices_->empty()) {
         printf("Warning: cannot search in empty graph!\n");
-        return;
+        return false;
     }
     
     if (g_ == NULL){
         printf("Warning: cannot search in empty graph!\n");
-        return;
+        return false;
     }
     
     typedef graph_t::vertex_descriptor vertex;
@@ -471,19 +717,20 @@ void Graph::shortestPath(int start, int goal, vector<int> &path){
         for(++spi; spi != shortest_path.end(); ++spi){
             path.push_back(*spi);
         }
-        return;
+        return true;
     }
-    
+   
+    return false;
     //cout << "Didn't find a path from " << start << " to "<< goal << "!" << endl;
 }
 
 void Graph::shortestPathInterpolation(vector<int> &query_path, vector<int> &result_path){
     /*
-        Given a query path which contains multiple GPS points, this function compute a shortest path interpolation on the graph.
+     Given a query path which contains multiple GPS points, this function compute a shortest path interpolation on the graph.
      
-        Arguments:
-            - query_path: a vector of GPS point indices pointing to points in vertices_. For example, [2,5,7] is a path containing 3 GPS points: [gps_pointcloud_->at(2), gps_pointcloud_->at(5), gps_pointcloud_->at(7)];
-            - result_path: the resulting path as a path on graph g_. Notice the indices are point to vertices_;
+     Arguments:
+     - query_path: a vector of GPS point indices pointing to points in vertices_. For example, [2,5,7] is a path containing 3 GPS points: [gps_pointcloud_->at(2), gps_pointcloud_->at(5), gps_pointcloud_->at(7)];
+     - result_path: the resulting path as a path on graph g_. Notice the indices are point to vertices_;
      */
     if (vertices_ == NULL)
         return;
@@ -507,39 +754,100 @@ void Graph::shortestPathInterpolation(vector<int> &query_path, vector<int> &resu
         result_path.clear();
         return;
     }
-   
+    
     // For each GPS point in the query_path, search its nearby graph vertices.
-    vector<int> nearby_vertex_idxs(query_path.size(), -1);
+    vector<vector<int>> nearby_vertex_idxs(query_path.size());
     for(size_t idx = 0; idx < query_path.size(); ++idx){
         PclPoint &pt = gps_pointcloud_->at(query_path[idx]);
         vector<int> k_indices;
         vector<float> k_sqr_distances;
-        tree_->nearestKSearch(pt, 1, k_indices, k_sqr_distances);
+        tree_->nearestKSearch(pt, 10, k_indices, k_sqr_distances);
         if (!k_indices.empty()) {
-            nearby_vertex_idxs[idx] = k_indices[0];
+            float min_distance_square = k_sqr_distances[0] + 0.1;
+            nearby_vertex_idxs[idx].push_back(k_indices[0]);
+            for (size_t i = 1; i < 10; ++i) {
+                if (k_sqr_distances[i] < min_distance_square) {
+                    nearby_vertex_idxs[idx].push_back(k_indices[i]);
+                }
+                else{
+                    break;
+                }
+            }
         }
     }
     
     // Compute shortest path between adjascent vertices.
     result_path.clear();
     for (size_t idx = 0; idx < nearby_vertex_idxs.size() - 1; ++idx) {
-        int start = nearby_vertex_idxs[idx];
-        int goal = nearby_vertex_idxs[idx+1];
-        if (start != goal) {
-            vector<int> path;
-            shortestPath(start, goal, path);
-            if (path.empty()) {
-                // Insert start to result_path
-                result_path.push_back(start);
-            }else{
-                // Insert the whole path except the last point into result
-                for (size_t path_pt_idx = 0; path_pt_idx < path.size() - 1; ++path_pt_idx) {
-                    result_path.push_back(path[path_pt_idx]);
+        vector<int> &from_vertex_idxs = nearby_vertex_idxs[idx];
+        vector<int> &to_vertex_idxs = nearby_vertex_idxs[idx+1];
+        vector<int> path;
+        bool found_path = false;
+        for (size_t i = 0; i < from_vertex_idxs.size(); ++i) {
+            for (size_t j = 0; j < to_vertex_idxs.size(); ++j) {
+                int start = from_vertex_idxs[i];
+                int goal = to_vertex_idxs[j];
+                if (start == goal) {
+                    continue;
                 }
+                vector<int> tmp_path;
+                if (shortestPath(start, goal, tmp_path)) {
+                    for (size_t k = 0; k < tmp_path.size(); ++k) {
+                        path.push_back(tmp_path[k]);
+                    }
+                    found_path = true;
+                    break;
+                }
+            }
+            if (found_path)
+                break;
+        }
+        
+        if (path.size() == 0) {
+            result_path.push_back(from_vertex_idxs[0]);
+        }
+        else{
+            // Insert the whole path except the last point into result
+            for (size_t path_pt_idx = 0; path_pt_idx < path.size() - 1; ++path_pt_idx) {
+                result_path.push_back(path[path_pt_idx]);
             }
         }
     }
-    result_path.push_back(nearby_vertex_idxs.back());
+    result_path.push_back(nearby_vertex_idxs.back()[0]);
+}
+
+// Simple segment distance
+float Graph::simpleSegDistance(Segment &seg1, Segment &seg2){
+    if(seg1.points().size() < 2 || seg2.points().size() < 2){
+        return POSITIVE_INFINITY;
+    }
+    
+    SegPoint seg1_start = seg1.points()[0];
+    SegPoint seg2_start = seg2.points()[0];
+    SegPoint seg1_end = seg1.points()[seg1.points().size()-1];
+    SegPoint seg2_end = seg2.points()[seg2.points().size()-1];
+    
+    float sigma = 0.5f;
+    float seg1_radius1 = sigma * abs(seg1_start.t);
+    float seg1_radius2 = sigma * abs(seg1_end.t);
+    float seg2_radius1 = sigma * abs(seg2_start.t);
+    float seg2_radius2 = sigma * abs(seg2_end.t);
+    
+    float delta1_x = seg1_start.x - seg2_start.x;
+    float delta1_y = seg1_start.y - seg2_start.y;
+    float dist1 = sqrt(delta1_x*delta1_x+delta1_y*delta1_y) - seg1_radius1 - seg2_radius1;
+    if (dist1 < 0.0f) {
+        dist1 = 0.0f;
+    }
+    float delta2_x = seg1_end.x - seg2_end.x;
+    float delta2_y = seg1_end.y - seg2_end.y;
+    float dist2 = sqrt(delta2_x*delta2_x + delta2_y*delta2_y) - seg1_radius2 - seg2_radius2;
+    
+    if (dist2 < 0.0f) {
+        dist2 = 0.0f;
+    }
+    
+    return dist1+dist2;
 }
 
 // Graph Dynamic Time Warping Distance for two graph paths
@@ -574,7 +882,7 @@ float Graph::DTWDistance(vector<int> &path1, vector<int> &path2){
     vector<vector<int>> DTW(n+1, vector<int>(m+1, 1e6));
     
     DTW[0][0] = 0;
-   
+    
     for (size_t i = 1; i < n+1; ++i) {
         for (size_t j = 1; j < m+1; ++j) {
             bool is_head1 = false;

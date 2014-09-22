@@ -161,7 +161,7 @@ void MainWindow::init(void)
     connect(ui_->scene_widget, SIGNAL(trajFileLoaded(QString &, const size_t &, const size_t &)), this, SLOT(slotTrajFileLoaded(QString &, const size_t &, const size_t &)));
     connect(this, SIGNAL(trajNumberChanged(int)), trajListModel, SLOT(setNumTraj(int)));
     connect(ui_->trajListView->selectionModel(), SIGNAL(selectionChanged(QItemSelection, QItemSelection)), this, SLOT(slotTrajSelectionChanged()));
-    connect(ui_->computeVariance, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotComputePointCloudVariance()));
+    connect(ui_->actionComputeDistanceGraph, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotComputeDistanceGraph()));
     
     // Map View
     connect(ui_->showMapCheckBox, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotSetShowMap(int)));
@@ -173,6 +173,9 @@ void MainWindow::init(void)
     connect(ui_->scene_widget, SIGNAL(newSamplesDrawn(QString &)), this, SLOT(slotNewSamplesDrawn(QString &)));
     connect(ui_->sampleCoverDistanceSpinBox, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotSampleCoverDistanceChange(double)));
     connect(ui_->clusterSegments, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotClusterSegmentsAtSample()));
+    connect(ui_->scene_widget, SIGNAL(nClusterComputed(int &)), this, SLOT(slotSetNClusters(int &)));
+    connect(ui_->showClusterId, SIGNAL(valueChanged(int)), ui_->scene_widget, SLOT(slotPickClusterAtIdx(int)));
+    connect(ui_->actionClusterSampleSegments, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotClusterSegmentsAtAllSamples()));
     
     // Segment View
     connect(ui_->showSegmentCheckBox, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotSetShowSegments(int)));
@@ -256,6 +259,15 @@ void MainWindow::slotNewSegmentsComputed(QString &info){
 
 void MainWindow::slotNewGraphComputed(QString &info){
     ui_->graphInfoLabel->setText(info);
+}
+
+void MainWindow::slotSetNClusters(int &n_cluster){
+    if (n_cluster > 0) {
+        ui_->showClusterId->setMaximum(n_cluster);
+    }
+    else{
+        ui_->showClusterId->setValue(0);
+    }
 }
 
 void MainWindow::slotTrajSelectionChanged(){

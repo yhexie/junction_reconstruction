@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 2.8.11)
 
+# OpenCV
+find_package(OpenCV REQUIRED)
+
 # PCL
 find_package(PCL REQUIRED common io)
 include_directories(${PCL_INCLUDE_DIRS})
@@ -98,6 +101,7 @@ ENDIF (${CMAKE_BUILD_TOOL} MATCHES "devenv")
 set(exe_name junction_reconstruction)
 add_executable(${exe_name} ${ui_srcs} ${moc_srcs} ${resource_srcs} ${srcs} ${incs})
 target_link_libraries(${exe_name} 
+    ${OpenCV_LIBS}
     pcl_wrapper
     ${CGAL_LIBRARIES}
     ${OPENGL_LIBRARIES}

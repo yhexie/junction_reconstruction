@@ -101,6 +101,21 @@
            </widget>
           </item>
           <item>
+           <widget class="QCheckBox" name="checkBox">
+            <property name="font">
+             <font>
+              <pointsize>13</pointsize>
+             </font>
+            </property>
+            <property name="layoutDirection">
+             <enum>Qt::RightToLeft</enum>
+            </property>
+            <property name="text">
+             <string>Show interpolated</string>
+            </property>
+           </widget>
+          </item>
+          <item>
            <widget class="QListView" name="trajListView">
             <property name="sizePolicy">
              <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
@@ -221,6 +236,13 @@
            </widget>
           </item>
           <item>
+           <widget class="QLabel" name="sampleInfoLabel">
+            <property name="text">
+             <string>No samples have been drawn yet.</string>
+            </property>
+           </widget>
+          </item>
+          <item>
            <widget class="QFrame" name="frame_3">
             <property name="sizePolicy">
              <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
@@ -279,10 +301,10 @@
                 </property>
                 <property name="geometry">
                  <rect>
-                  <x>200</x>
-                  <y>33</y>
-                  <width>101</width>
-                  <height>32</height>
+                  <x>207</x>
+                  <y>37</y>
+                  <width>81</width>
+                  <height>20</height>
                  </rect>
                 </property>
                 <property name="sizePolicy">
@@ -300,7 +322,7 @@
                  <rect>
                   <x>48</x>
                   <y>6</y>
-                  <width>81</width>
+                  <width>111</width>
                   <height>24</height>
                  </rect>
                 </property>
@@ -329,7 +351,7 @@
                  <double>0.050000000000000</double>
                 </property>
                 <property name="value">
-                 <double>0.500000000000000</double>
+                 <double>0.200000000000000</double>
                 </property>
                </widget>
                <widget class="QLabel" name="label">
@@ -345,58 +367,11 @@
                  <string>Sigma</string>
                 </property>
                </widget>
-               <widget class="QLabel" name="label_4">
-                <property name="geometry">
-                 <rect>
-                  <x>8</x>
-                  <y>43</y>
-                  <width>40</width>
-                  <height>16</height>
-                 </rect>
-                </property>
-                <property name="text">
-                 <string>Thres</string>
-                </property>
-               </widget>
-               <widget class="QDoubleSpinBox" name="thresholdValue">
-                <property name="geometry">
-                 <rect>
-                  <x>50</x>
-                  <y>38</y>
-                  <width>71</width>
-                  <height>24</height>
-                 </rect>
-                </property>
-                <property name="sizePolicy">
-                 <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
-                  <horstretch>0</horstretch>
-                  <verstretch>0</verstretch>
-                 </sizepolicy>
-                </property>
-                <property name="minimumSize">
-                 <size>
-                  <width>10</width>
-                  <height>0</height>
-                 </size>
-                </property>
-                <property name="suffix">
-                 <string>m</string>
-                </property>
-                <property name="decimals">
-                 <number>1</number>
-                </property>
-                <property name="singleStep">
-                 <double>1.000000000000000</double>
-                </property>
-                <property name="value">
-                 <double>20.000000000000000</double>
-                </property>
-               </widget>
                <widget class="QLabel" name="label_7">
                 <property name="geometry">
                  <rect>
-                  <x>154</x>
-                  <y>10</y>
+                  <x>8</x>
+                  <y>40</y>
                   <width>111</width>
                   <height>16</height>
                  </rect>
@@ -408,8 +383,8 @@
                <widget class="QSpinBox" name="minClusterSize">
                 <property name="geometry">
                  <rect>
-                  <x>259</x>
-                  <y>6</y>
+                  <x>110</x>
+                  <y>35</y>
                   <width>49</width>
                   <height>24</height>
                  </rect>
@@ -421,26 +396,38 @@
                  <number>20</number>
                 </property>
                 <property name="value">
-                 <number>3</number>
+                 <number>5</number>
+                </property>
+               </widget>
+               <widget class="QLabel" name="label_8">
+                <property name="geometry">
+                 <rect>
+                  <x>170</x>
+                  <y>10</y>
+                  <width>81</width>
+                  <height>16</height>
+                 </rect>
+                </property>
+                <property name="text">
+                 <string>Show cluster</string>
+                </property>
+               </widget>
+               <widget class="QSpinBox" name="showClusterId">
+                <property name="geometry">
+                 <rect>
+                  <x>255</x>
+                  <y>6</y>
+                  <width>51</width>
+                  <height>24</height>
+                 </rect>
+                </property>
+                <property name="maximum">
+                 <number>10000000</number>
                 </property>
                </widget>
               </widget>
              </item>
             </layout>
-           </widget>
-          </item>
-          <item>
-           <widget class="QPushButton" name="computeVariance">
-            <property name="text">
-             <string>Compute Variance</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QLabel" name="sampleInfoLabel">
-            <property name="text">
-             <string>No samples have been drawn yet.</string>
-            </property>
            </widget>
           </item>
           <item>
@@ -686,6 +673,8 @@
     </property>
     <addaction name="actionExtractTrajectory"/>
     <addaction name="separator"/>
+    <addaction name="actionComputeDistanceGraph"/>
+    <addaction name="separator"/>
     <addaction name="actionSamplePointCloud"/>
     <addaction name="actionPickSample"/>
     <addaction name="actionClearPickedSamples"/>
@@ -834,6 +823,11 @@
   <action name="actionUpdateGraph">
    <property name="text">
     <string>Update Graph</string>
+   </property>
+  </action>
+  <action name="actionComputeDistanceGraph">
+   <property name="text">
+    <string>Compute Distance Graph</string>
    </property>
   </action>
  </widget>

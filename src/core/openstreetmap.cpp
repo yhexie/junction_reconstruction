@@ -92,7 +92,7 @@ void OpenStreetMap::prepareForVisualization(QVector4D bound_box){
             float n_x = (aWay.eastings()[j] - center_x) / scale_factor_;
             float n_y = (aWay.northings()[j] - center_y) / scale_factor_;
             way_idx[j] = normalized_vertices_.size();
-            normalized_vertices_.push_back(Vertex(n_x, n_y, 0.0));
+            normalized_vertices_.push_back(Vertex(n_x, n_y, Z_OSM));
             vertex_colors_.push_back(vertex_color);
             if (!aWay.isOneway()) {
                 continue;
@@ -118,12 +118,12 @@ void OpenStreetMap::prepareForVisualization(QVector4D bound_box){
                 
                 vector<unsigned> direction_idx(3, 0);
                 direction_idx[0] = direction_vertices_.size();
-                direction_vertices_.push_back(Vertex(center_x - vec1.x(), center_y - vec1.y(), 0.0f));
+                direction_vertices_.push_back(Vertex(center_x - vec1.x(), center_y - vec1.y(), Z_OSM));
                 direction_idx[1] = direction_vertices_.size();
-                direction_vertices_.push_back(Vertex(center_x, center_y, 0.0f));
+                direction_vertices_.push_back(Vertex(center_x, center_y, Z_OSM));
                 direction_idx[2] = direction_vertices_.size();
                 direction_idxs_.push_back(direction_idx);
-                direction_vertices_.push_back(Vertex(center_x - vec2.x(), center_y - vec2.y(), 0.0f));
+                direction_vertices_.push_back(Vertex(center_x - vec2.x(), center_y - vec2.y(), Z_OSM));
                 direction_colors_.push_back(vertex_color);
                 direction_colors_.push_back(vertex_color);
                 direction_colors_.push_back(vertex_color);

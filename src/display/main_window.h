@@ -45,7 +45,6 @@ public:
     void showInStatusBar(const QString &str);
     
     double getSigmaValue() {return ui_->sigmaValue->value(); }
-    double getThresholdValue() { return ui_->thresholdValue->value(); }
     int getMinClusterSize() {return ui_->minClusterSize->value(); }
    
 	const std::string& getWorkspace(void) const {return workspace_;}
@@ -79,6 +78,7 @@ private slots:
     void slotNewSamplesDrawn(QString &);
     void slotNewSegmentsComputed(QString &);
     void slotNewGraphComputed(QString &);
+    void slotSetNClusters(int &n_cluster);
     
 private:
     void loadSettings();

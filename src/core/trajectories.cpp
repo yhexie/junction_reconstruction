@@ -24,16 +24,10 @@ using namespace Eigen;
 static const float search_distance = 250.0f; // in meters
 static const float arrow_size = 50.0f;   // in meters
 static const int arrow_angle = 15; // in degrees
-static const float select_traj_z_value = 0.01;
 
 static const float SPEED_FILTER = 2.5; // meters per second
 
-static const float Z_TRAJECTORIES = -1.0f;
-static const float Z_SAMPLES      = -0.5f;
-static const float Z_SELECTED_SAMPLES = 0.0f;
-static const float Z_SEGMENTS     = -0.4f;
-
-Trajectories::Trajectories(QObject *parent) : Renderable(parent), data_(new PclPointCloud), tree_(new pcl::search::FlannSearch<PclPoint>(false)), sample_point_size_(10.0f), sample_color_(Color(0.0f, 0.3f, 0.6f, 1.0f)),samples_(new PclPointCloud), sample_tree_(new pcl::search::FlannSearch<PclPoint>(false))
+Trajectories::Trajectories(QObject *parent) : Renderable(parent), data_(new PclPointCloud), tree_(new pcl::search::FlannSearch<PclPoint>(false)), distance_graph_vertices_(new PclPointCloud), distance_graph_search_tree_(new pcl::search::FlannSearch<PclPoint>(false)), sample_point_size_(10.0f), sample_color_(Color(0.0f, 0.3f, 0.6f, 1.0f)),samples_(new PclPointCloud), sample_tree_(new pcl::search::FlannSearch<PclPoint>(false)), cluster_centers_(new PclPointCloud), cluster_center_search_tree_(new pcl::search::FlannSearch<PclPoint>(false))
 {
     bound_box_ = QVector4D(1e10, -1e10, 1e10, -1e10);
     point_size_ = 5.0f;
@@ -47,6 +41,13 @@ Trajectories::Trajectories(QObject *parent) : Renderable(parent), data_(new PclP
     normalized_vertices_.clear();
     vertex_colors_const_.clear();
     vertex_colors_individual_.clear();
+    show_interpolated_trajectories_ = true;
+    
+    graph_ = NULL;
+    
+    // Distance graph
+    distance_graph_ = NULL;
+    show_distance_graph_ = true;
     
     // Samples
     show_samples_ = true;
@@ -54,6 +55,9 @@ Trajectories::Trajectories(QObject *parent) : Renderable(parent), data_(new PclP
     picked_sample_idxs_.clear();
     normalized_sample_locs_.clear();
     sample_vertex_colors_.clear();
+    cluster_descriptors_ = NULL;
+    normalized_cluster_center_locs_.clear();
+    cluster_center_colors_.clear();
     
     // Segments
     show_segments_ = true;
@@ -66,6 +70,12 @@ Trajectories::Trajectories(QObject *parent) : Renderable(parent), data_(new PclP
 }
 
 Trajectories::~Trajectories(){
+    if (distance_graph_ != NULL){
+        delete distance_graph_;
+    }
+    if (cluster_descriptors_ != NULL){
+        delete cluster_descriptors_;
+    }
 }
 
 void Trajectories::draw(){
@@ -119,6 +129,46 @@ void Trajectories::draw(){
         drawSelectedTrajectories(selected_trajectories_);
     }else{
         selected_trajectories_.clear();
+    }
+    
+    // Draw Distance Graph
+    if (show_distance_graph_ && distance_graph_ != NULL) {
+        // Draw Edges
+        vertexPositionBuffer_.create();
+        vertexPositionBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
+        vertexPositionBuffer_.bind();
+        vertexPositionBuffer_.allocate(&normalized_distance_graph_vertices_[0], 3*normalized_distance_graph_vertices_.size()*sizeof(float));
+        shadder_program_->setupPositionAttributes();
+        
+        vertexColorBuffer_.create();
+        vertexColorBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
+        vertexColorBuffer_.bind();
+        vertexColorBuffer_.allocate(&distance_graph_vertex_colors_[0], 4*distance_graph_vertex_colors_.size()*sizeof(float));
+        shadder_program_->setupColorAttributes();
+        QOpenGLBuffer element_buffer(QOpenGLBuffer::IndexBuffer);
+        element_buffer.create();
+        element_buffer.setUsagePattern(QOpenGLBuffer::StaticDraw);
+        element_buffer.bind();
+        vector<int> &distance_graph_edge_idxs = distance_graph_->edge_idxs();
+        element_buffer.allocate(&(distance_graph_edge_idxs[0]), distance_graph_edge_idxs.size()*sizeof(int));
+        glLineWidth(line_width_);
+        glDrawElements(GL_LINES, distance_graph_edge_idxs.size(), GL_UNSIGNED_INT, 0);
+        
+        // Draw Vertices
+        vertexPositionBuffer_.create();
+        vertexPositionBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
+        vertexPositionBuffer_.bind();
+        vertexPositionBuffer_.allocate(&normalized_distance_graph_vertices_[0], 3*normalized_distance_graph_vertices_.size()*sizeof(float));
+        shadder_program_->setupPositionAttributes();
+        
+        vertexColorBuffer_.create();
+        vertexColorBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
+        vertexColorBuffer_.bind();
+        vertexColorBuffer_.allocate(&distance_graph_vertex_colors_[0], 4*distance_graph_vertex_colors_.size()*sizeof(float));
+        shadder_program_->setupColorAttributes();
+        
+        glPointSize(point_size_);
+        glDrawArrays(GL_POINTS, 0, normalized_distance_graph_vertices_.size());
     }
     
     // Draw samples
@@ -198,11 +248,17 @@ void Trajectories::draw(){
 }
 
 void Trajectories::prepareForVisualization(QVector4D bound_box){
+    display_bound_box_ = bound_box;
     normalized_vertices_.clear();
     vertex_colors_const_.clear();
     vertex_colors_individual_.clear();
     normalized_sample_locs_.clear();
     sample_vertex_colors_.clear();
+    normalized_cluster_center_locs_.clear();
+    cluster_center_colors_.clear();
+    vertex_speed_.clear();
+    vertex_speed_indices_.clear();
+    vertex_speed_colors_.clear();
     
     float delta_x = bound_box[1] - bound_box[0];
     float delta_y = bound_box[3] - bound_box[2];
@@ -213,17 +269,30 @@ void Trajectories::prepareForVisualization(QVector4D bound_box){
     float center_x = 0.5*bound_box[0] + 0.5*bound_box[1];
     float center_y = 0.5*bound_box[2] + 0.5*bound_box[3];
     scale_factor_ = (delta_x > delta_y) ? 0.5*delta_x : 0.5*delta_y;
-    
+   
     for (size_t i=0; i<data_->size(); ++i) {
         const PclPoint &point = data_->at(i);
         float n_x = (point.x - center_x) / scale_factor_;
         float n_y = (point.y - center_y) / scale_factor_;
         normalized_vertices_.push_back(Vertex(n_x, n_y, Z_TRAJECTORIES));
+        
+        // Speed and heading
+        float speed = static_cast<float>(data_->at(i).speed) / 100.0f;
+        float heading = static_cast<float>(data_->at(i).head) *PI / 180.0f;
+        float speed_line_length = speed / scale_factor_;
+        float speed_delta_x = speed_line_length * sin(heading);
+        float speed_delta_y = speed_line_length * cos(heading);
+        vertex_speed_indices_.push_back(vertex_speed_.size());
+        vertex_speed_.push_back(Vertex(n_x, n_y, Z_TRAJECTORY_SPEED));
+        vertex_speed_indices_.push_back(vertex_speed_.size());
+        vertex_speed_.push_back(Vertex(n_x+speed_delta_x, n_y+speed_delta_y, Z_TRAJECTORY_SPEED));
     }
+    
     Color light_gray = ColorMap::getInstance().getNamedColor(ColorMap::LIGHT_GRAY);
     vertex_colors_const_.resize(normalized_vertices_.size(), light_gray);
     
     vertex_colors_individual_.resize(data_->size(), Color(0,0,0,1));
+    vertex_speed_colors_.resize(data_->size()*2, Color(0,0,0,1));
     for (int i=0; i < trajectories_.size(); ++i) {
         Color traj_color = ColorMap::getInstance().getDiscreteColor(i);
         for (int j = 0; j < trajectories_[i].size(); ++j) {
@@ -231,6 +300,33 @@ void Trajectories::prepareForVisualization(QVector4D bound_box){
             vertex_colors_individual_[vertex_idx].r = traj_color.r;
             vertex_colors_individual_[vertex_idx].g = traj_color.g;
             vertex_colors_individual_[vertex_idx].b = traj_color.b;
+            vertex_speed_colors_[2*vertex_idx].r = 1.0 - traj_color.r;
+            vertex_speed_colors_[2*vertex_idx].g = 1.0 - traj_color.g;
+            vertex_speed_colors_[2*vertex_idx].b = 1.0 - traj_color.b;
+            vertex_speed_colors_[2*vertex_idx+1].r = 1.0 - traj_color.r;
+            vertex_speed_colors_[2*vertex_idx+1].g = 1.0 - traj_color.g;
+            vertex_speed_colors_[2*vertex_idx+1].b = 1.0 - traj_color.b;
+        }
+    }
+    
+    // Prepare for distance graph
+    if (!show_distance_graph_) {
+        return;
+    }
+    else{
+        if (distance_graph_ != NULL) {
+            normalized_distance_graph_vertices_.clear();
+            distance_graph_vertex_colors_.clear();
+            normalized_distance_graph_vertices_.resize(distance_graph_vertices_->size());
+            Color dark_gray = ColorMap::getInstance().getNamedColor(ColorMap::DARK_GRAY);
+            distance_graph_vertex_colors_.resize(distance_graph_vertices_->size(), dark_gray);
+            
+            for (size_t i = 0; i < distance_graph_vertices_->size(); ++i){
+                PclPoint &loc = distance_graph_vertices_->at(i);
+                normalized_distance_graph_vertices_[i].x = (loc.x - center_x) / scale_factor_;
+                normalized_distance_graph_vertices_[i].y = (loc.y - center_y) / scale_factor_;
+                normalized_distance_graph_vertices_[i].z = Z_DISTANCE_GRAPH;
+            }
         }
     }
     
@@ -250,6 +346,24 @@ void Trajectories::prepareForVisualization(QVector4D bound_box){
         sample_vertex_colors_[i].g = sample_color_.g;
         sample_vertex_colors_[i].b = sample_color_.b;
         sample_vertex_colors_[i].alpha = sample_color_.alpha;
+    }
+    
+    // Prepare for graph visualization
+    if (cluster_centers_->size() == 0)
+        return;
+    
+    normalized_cluster_center_locs_.resize(cluster_centers_->size());
+    cluster_center_colors_.resize(cluster_centers_->size());
+    
+    for (size_t i = 0; i < cluster_centers_->size(); ++i){
+        PclPoint &loc = cluster_centers_->at(i);
+        normalized_cluster_center_locs_[i].x = (loc.x - center_x) / scale_factor_;
+        normalized_cluster_center_locs_[i].y = (loc.y - center_y) / scale_factor_;
+        normalized_cluster_center_locs_[i].z = Z_DISTANCE_GRAPH;
+        cluster_center_colors_[i].r = sample_color_.r;
+        cluster_center_colors_[i].g = sample_color_.g;
+        cluster_center_colors_[i].b = sample_color_.b;
+        cluster_center_colors_[i].alpha = sample_color_.alpha;
     }
 }
 
@@ -695,10 +809,10 @@ void Trajectories::selectNearLocation(float x, float y, float max_distance){
         int traj_id = selected_point.id_trajectory;
         selected_trajectories_.push_back(selected_point.id_trajectory);
         printf("Trajectory %d selected.\n", traj_id);
-        for (size_t pt_idx = 0; pt_idx < trajectories_[traj_id].size(); ++pt_idx) {
-            int pt_idx_in_data = trajectories_[traj_id][pt_idx];
-            printf("t = %.2f, x=%.2f, y=%.2f\n", data_->at(pt_idx_in_data).t, data_->at(pt_idx_in_data).x, data_->at(pt_idx_in_data).y);
-        }
+        //for (size_t pt_idx = 0; pt_idx < trajectories_[traj_id].size(); ++pt_idx) {
+            //int pt_idx_in_data = trajectories_[traj_id][pt_idx];
+            //printf("t = %.2f, x=%.2f, y=%.2f, head=%d, speed=%d\n", data_->at(pt_idx_in_data).t, data_->at(pt_idx_in_data).x, data_->at(pt_idx_in_data).y, data_->at(pt_idx_in_data).head, data_->at(pt_idx_in_data).speed);
+        //}
     }
 }
 
@@ -727,7 +841,7 @@ void Trajectories::drawSelectedTrajectories(vector<int> &traj_indices){
             
             Vertex &origVertex = normalized_vertices_[orig_trajectory[pt_idx]];
             Color &origColor = vertex_colors_individual_[orig_trajectory[pt_idx]];
-            selected_vertices.push_back(Vertex(origVertex.x, origVertex.y, select_traj_z_value));
+            selected_vertices.push_back(Vertex(origVertex.x, origVertex.y, Z_SELECTED_TRAJ));
             selected_vertex_colors.push_back(Color(origColor.r, origColor.g, origColor.b, origColor.alpha));
             
             // Prepare for drawing arrow for trajectory
@@ -754,12 +868,12 @@ void Trajectories::drawSelectedTrajectories(vector<int> &traj_indices){
                 float center_y = 0.5*selected_vertices[last_pt_idx].y + 0.5*selected_vertices[last_pt_idx-1].y;
                 vector<unsigned> direction_idx(3, 0);
                 direction_idx[0] = direction_vertices.size();
-                direction_vertices.push_back(Vertex(center_x - vec1.x(), center_y - vec1.y(), select_traj_z_value));
+                direction_vertices.push_back(Vertex(center_x - vec1.x(), center_y - vec1.y(), Z_SELECTED_TRAJ));
                 direction_idx[1] = direction_vertices.size();
-                direction_vertices.push_back(Vertex(center_x, center_y, select_traj_z_value));
+                direction_vertices.push_back(Vertex(center_x, center_y, Z_SELECTED_TRAJ));
                 direction_idx[2] = direction_vertices.size();
                 direction_idxs.push_back(direction_idx);
-                direction_vertices.push_back(Vertex(center_x - vec2.x(), center_y - vec2.y(), select_traj_z_value));
+                direction_vertices.push_back(Vertex(center_x - vec2.x(), center_y - vec2.y(), Z_SELECTED_TRAJ));
                 direction_colors.push_back(Color(origColor.r, origColor.g, origColor.b, origColor.alpha));
                 direction_colors.push_back(Color(origColor.r, origColor.g, origColor.b, origColor.alpha));
                 direction_colors.push_back(Color(origColor.r, origColor.g, origColor.b, origColor.alpha));
@@ -814,6 +928,93 @@ void Trajectories::drawSelectedTrajectories(vector<int> &traj_indices){
         element_buffer.allocate(&(direction_idxs[i][0]), direction_idxs[i].size()*sizeof(unsigned));
         glLineWidth(line_width_*2.5);
         glDrawElements(GL_TRIANGLES, direction_idxs[i].size(), GL_UNSIGNED_INT, 0);
+    }
+    
+    // Draw speed and heading
+    vector<int> speed_heading_idxs;
+    for (size_t i = 0; i < traj_indices.size(); ++i) {
+        vector<int> &traj = trajectories_[traj_indices[i]];
+        for (size_t j = 0; j < traj.size(); ++j) {
+            int pt_idx = traj[j];
+            speed_heading_idxs.push_back(2*pt_idx);
+            speed_heading_idxs.push_back(2*pt_idx+1);
+        }
+    }
+    vertexPositionBuffer_.create();
+    vertexPositionBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
+    vertexPositionBuffer_.bind();
+    vertexPositionBuffer_.allocate(&vertex_speed_[0], 3*vertex_speed_.size()*sizeof(float));
+    shadder_program_->setupPositionAttributes();
+    
+    vertexColorBuffer_.create();
+    vertexColorBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
+    vertexColorBuffer_.bind();
+    vertexColorBuffer_.allocate(&vertex_speed_colors_[0], 4*vertex_speed_colors_.size()*sizeof(float));
+    shadder_program_->setupColorAttributes();
+    QOpenGLBuffer element_buffer(QOpenGLBuffer::IndexBuffer);
+    element_buffer.create();
+    element_buffer.setUsagePattern(QOpenGLBuffer::StaticDraw);
+    element_buffer.bind();
+    element_buffer.allocate(&(speed_heading_idxs[0]), speed_heading_idxs.size()*sizeof(int));
+    glLineWidth(line_width_);
+    glDrawElements(GL_LINES, speed_heading_idxs.size(), GL_UNSIGNED_INT, 0);
+    
+    // Draw Interpolated trajectories
+    if (show_interpolated_trajectories_) {
+        if (graph_ == NULL) {
+            return;
+        }
+        
+        // Compute interpolation using graph_.
+        vector<vector<int> >    interpolated_trajectories(traj_indices.size());
+        for (size_t i = 0; i < traj_indices.size(); ++i) {
+            int traj_id = traj_indices[i];
+            vector<int> &orig_trajectory = trajectories_[traj_id];
+            vector<int> &result_traj = interpolated_trajectories[i];
+            graph_->shortestPathInterpolation(orig_trajectory, result_traj);
+        }
+        vector<Vertex>          interpolated_trajectory_vertices;
+        vector<Color>           interpolated_trajectory_vertex_colors;
+        vector<vector<int>>             interpolated_trajectory_indices;
+        
+        for (size_t i = 0; i < interpolated_trajectories.size(); ++i) {
+            vector<int> &traj = interpolated_trajectories[i];
+            vector<int> new_trajectory_indices;
+            //Color &origColor = vertex_colors_individual_[orig_trajectory[0]];
+            Color origColor = Color(1.0, 0.0, 0, 1);
+            for(size_t pt_idx = 0; pt_idx < traj.size(); ++pt_idx){
+                float alpha = 1.0 - 0.5 * static_cast<float>(pt_idx) / traj.size();
+                new_trajectory_indices.push_back(interpolated_trajectory_vertices.size());
+                Vertex &sampleVertex = normalized_cluster_center_locs_[traj[pt_idx]];
+                interpolated_trajectory_vertices.push_back(Vertex(sampleVertex.x, sampleVertex.y, 0));
+                interpolated_trajectory_vertex_colors.push_back(Color(alpha*origColor.r, alpha*origColor.g, alpha*origColor.b, 1.0));
+            }
+            interpolated_trajectory_indices.push_back(new_trajectory_indices);
+        }
+        
+        vertexPositionBuffer_.create();
+        vertexPositionBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
+        vertexPositionBuffer_.bind();
+        vertexPositionBuffer_.allocate(&interpolated_trajectory_vertices[0], 3*interpolated_trajectory_vertices.size()*sizeof(float));
+        shadder_program_->setupPositionAttributes();
+        
+        vertexColorBuffer_.create();
+        vertexColorBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
+        vertexColorBuffer_.bind();
+        vertexColorBuffer_.allocate(&interpolated_trajectory_vertex_colors[0], 4*interpolated_trajectory_vertex_colors.size()*sizeof(float));
+        shadder_program_->setupColorAttributes();
+        
+        for (int i=0; i < interpolated_trajectory_indices.size(); ++i) {
+            QOpenGLBuffer element_buffer(QOpenGLBuffer::IndexBuffer);
+            element_buffer.create();
+            element_buffer.setUsagePattern(QOpenGLBuffer::StaticDraw);
+            element_buffer.bind();
+            element_buffer.allocate(&(interpolated_trajectory_indices[i][0]), interpolated_trajectory_indices[i].size()*sizeof(size_t));
+            glLineWidth(line_width_*2);
+            glDrawElements(GL_LINE_STRIP, interpolated_trajectory_indices[i].size(), GL_UNSIGNED_INT, 0);
+            glPointSize(point_size_*2);
+            glDrawElements(GL_POINTS, interpolated_trajectory_indices[i].size(), GL_UNSIGNED_INT, 0);
+        }
     }
 }
 
@@ -1134,6 +1335,7 @@ void Trajectories::selectSegmentsNearSample(int sample_id){
         segments_to_draw_for_samples_.push_back(k_indices[i]);
         segments_to_draw_for_samples_colors_.push_back(seg_color);
     }
+    
     updateSelectedSegments();
 }
 
@@ -1327,7 +1529,7 @@ int Trajectories::clusterSegmentsUsingDistanceAtSample(int sample_id, double sig
     
     printf("%lu nearby segments.\n", nearby_segment_idxs.size());
     
-    clock_t begin = clock();
+    //clock_t begin = clock();
     int first_idx = -1;
     float max_dist = 0.0f;
     for (size_t i = 0; i < nearby_segment_idxs.size(); ++i){
@@ -1446,9 +1648,9 @@ int Trajectories::clusterSegmentsUsingDistanceAtSample(int sample_id, double sig
         remaining_segments.erase(max_segment_idx);
     }
     
-    clock_t end = clock();
-    double elapsed_time = double(end - begin) / CLOCKS_PER_SEC;
-    printf("Clustering %lu segments took %.1f sec.\n", nearby_segment_idxs.size(), elapsed_time);
+    //clock_t end = clock();
+    //double elapsed_time = double(end - begin) / CLOCKS_PER_SEC;
+    //printf("Clustering %lu segments took %.1f sec.\n", nearby_segment_idxs.size(), elapsed_time);
     
     // Visualization
     segments_to_draw_for_samples_.clear();
@@ -1470,69 +1672,591 @@ int Trajectories::clusterSegmentsUsingDistanceAtSample(int sample_id, double sig
     return n_valid_cluster;
 }
 
+void Trajectories::clusterSegmentsAtAllSamples(double sigma, int minClusterSize){
+    if (samples_->size() == 0)
+        return;
+    
+    int total_n_clusters = 0;
+    
+    PclPoint point;
+    vector<vector<vector<int>>> all_sample_clusters(samples_->size());
+    for (size_t sample_id = 0; sample_id < samples_->size(); ++sample_id){
+        vector<vector<int>> &clusters = all_sample_clusters[sample_id];
+        int n_clusters = fpsSegmentSampling(sample_id, sigma, minClusterSize, clusters);
+        if (n_clusters == 0) {
+            total_n_clusters += 1;
+        }
+        else{
+            total_n_clusters += n_clusters;
+        }
+    }
+    
+    cluster_centers_->clear();
+    cluster_popularity_.clear();
+    cluster_descriptors_ = new cv::Mat(total_n_clusters, 16, cv::DataType<float>::type, 0.0f);
+    int current_cluster_id = 0;
+    for (size_t sample_id = 0; sample_id < samples_->size(); ++sample_id){
+        vector<vector<int>> &clusters = all_sample_clusters[sample_id];
+        // Deal with empty clusterd sample
+        if (clusters.size() == 0) {
+            point.setCoordinate(samples_->at(sample_id).x, samples_->at(sample_id).y, 0.0f);
+            cluster_centers_->push_back(point);
+            cluster_popularity_.push_back(0);
+            current_cluster_id += 1;
+            continue;
+        }
+        // Compute descriptors for each clusters and store them.
+        for (size_t i_cluster = 0; i_cluster < clusters.size(); ++i_cluster){
+            vector<int> &cluster = clusters[i_cluster];
+            point.setCoordinate(samples_->at(sample_id).x, samples_->at(sample_id).y, 0.0f);
+            cluster_centers_->push_back(point);
+            cluster_popularity_.push_back(cluster.size());
+            float cummulated_count = 0.0f;
+            for (size_t j = 0; j < cluster.size(); ++j){
+                int seg_id = cluster[j];
+                Segment &seg = segments_[seg_id];
+                for (size_t k = 0; k < seg.points().size(); ++k) {
+                    float delta_x = seg.points()[k].x - samples_->at(sample_id).x;
+                    float delta_y = seg.points()[k].y - samples_->at(sample_id).y;
+                    float r = sqrt(delta_x*delta_x + delta_y*delta_y);
+                    int r_bin_id = 0;
+                    if (r > 50.0f) {
+                        r_bin_id = 1;
+                    }
+//                    else if (r > 100.0f && r <= 250.0f){
+//                        r_bin_id = 2;
+//                    }
+//                    else if (r > 250.0f){
+//                        r_bin_id = 3;
+//                    }
+                    
+                    float cos_value = delta_x / r;
+                    float theta = acos(cos_value) * 180.0f / PI;
+                    if (delta_y < 0) {
+                        theta += 180;
+                    }
+                    int theta_bin_id;
+                    if (theta > 45.0f && theta <= 135.0f) {
+                        theta_bin_id = 1;
+                    }
+                    else if (theta > 135.0f && theta <= 225.0f){
+                        theta_bin_id = 2;
+                    }
+                    else if (theta > 225.0f && theta <= 315.0f){
+                        theta_bin_id = 3;
+                    }
+                    else{
+                        theta_bin_id = 0;
+                    }
+                    
+                    int bin_idx = r_bin_id * theta_bin_id;
+                    
+                    if (seg.points()[k].t >= 0) {
+                        bin_idx += 8;
+                    }
+                    cluster_descriptors_->at<float>(current_cluster_id, bin_idx) += 1.0;
+                    cummulated_count += 1.0f;
+                }
+            }
+           
+            // Normalize this distribution
+            if (cummulated_count > 0.0f) {
+                for (int s=0; s < 16; ++s) {
+                    cluster_descriptors_->at<float>(current_cluster_id, s) /= cummulated_count;
+                }
+            }
+            current_cluster_id += 1;
+        }
+    }
+    
+    //cout << *cluster_descriptors_ << endl;
+    
+    cluster_center_search_tree_->setInputCloud(cluster_centers_);
+    
+    //cv::flann::Index flann_index(obj_32f, cv::flann::KDTreeIndexParams());
+    
+    //cv::flann::Index flann_index(, cv::flann::Kd);
+    
+//    segments_to_draw_for_samples_.clear();
+//    segments_to_draw_for_samples_colors_.clear();
+//    for (size_t sample_id = 0; sample_id < samples_->size(); ++sample_id) {
+//        vector<int> &cluster_center = sample_segment_clusters_[sample_id];
+//        Color cluster_color = ColorMap::getInstance().getDiscreteColor(sample_id);
+//        for (size_t i = 0; i < cluster_center.size(); ++i) {
+//            segments_to_draw_for_samples_.push_back(cluster_center[i]);
+//            segments_to_draw_for_samples_colors_.push_back(cluster_color);
+//        }
+//    }
+//    
+//    updateSelectedSegments();
+}
+
+int Trajectories::fpsSegmentSampling(int sample_id, double sigma, int minClusterSize, vector<vector<int>> &clusters){
+    vector<int> nearby_segment_idxs;
+    // Search GPS points around the sample point
+    vector<int> k_indices;
+    vector<float> k_distances;
+    tree_->radiusSearch(samples_->at(sample_id), search_range_, k_indices, k_distances);
+    
+    nearby_segment_idxs.clear();
+    for (size_t i = 0; i < k_indices.size(); ++i) {
+        if (!segments_[k_indices[i]].quality()) {
+            continue;
+        }
+        nearby_segment_idxs.push_back(k_indices[i]);
+    }
+    
+    if (nearby_segment_idxs.size() == 0)
+        return 0;
+    
+    int first_idx = -1;
+    float max_dist = 0.0f;
+    for (size_t i = 0; i < nearby_segment_idxs.size(); ++i){
+        Segment &seg = segments_[nearby_segment_idxs[i]];
+        if (seg.points().size() < 2) {
+            continue;
+        }
+        float delta_x = seg.points()[0].x - samples_->at(sample_id).x;
+        float delta_y = seg.points()[0].y - samples_->at(sample_id).y;
+        float dist1 = sqrt(delta_x*delta_x + delta_y*delta_y);
+        
+        int last_pt_idx = seg.points().size() - 1;
+        delta_x = seg.points()[last_pt_idx].x - samples_->at(sample_id).x;
+        delta_y = seg.points()[last_pt_idx].y - samples_->at(sample_id).y;
+        float dist2 = sqrt(delta_x*delta_x + delta_y*delta_y);
+        
+        float dist = (dist1 > dist2) ? dist1 : dist2;
+        if (max_dist < dist) {
+            max_dist = dist;
+            first_idx = i;
+        }
+    }
+    
+    //clock_t begin = clock();
+    set<int> remaining_segments;
+    for (size_t i = 0;  i < nearby_segment_idxs.size(); ++i) {
+        if (i == first_idx) {
+            continue;
+        }
+        remaining_segments.insert(nearby_segment_idxs[i]);
+    }
+    
+    // Start furthest point clustering
+    vector<vector<int>> tmp_clusters;
+    typedef pair<int, int> key_type;
+    map<key_type, float> computed_dist;
+    
+    int MAX_CLUSTERS = 20;
+    vector<float> max_distances(MAX_CLUSTERS, 0.0f);
+    vector<int> selected_centers;
+    selected_centers.push_back(nearby_segment_idxs[first_idx]);
+    for (int i=0; i < MAX_CLUSTERS-1; ++i){
+        float max_distance = -1;
+        int max_segment_idx = -1;
+        for (set<int>::iterator it=remaining_segments.begin(); it != remaining_segments.end(); ++it) {
+            int seg_id = *it;
+            float min_distance = POSITIVE_INFINITY;
+            // Compute distance between current segment and the already selected cluster center segments.
+            for (size_t ith_selected = 0; ith_selected < selected_centers.size(); ++ith_selected) {
+                int other_seg_id = selected_centers[ith_selected];
+                // Reuse distance if it has been computed before
+                key_type this_key(seg_id, other_seg_id);
+                key_type reverse_key(other_seg_id, seg_id);
+                map<key_type, float>::iterator m_it = computed_dist.find(this_key);
+                float dist = 0.0f;
+                if (m_it != computed_dist.end()) {
+                    dist = m_it->second;
+                }
+                else{
+                    // Compute dist.
+                    dist = computeSegmentDistance(seg_id, other_seg_id, sigma);
+                    // Insert the computed dist for reuse.
+                    computed_dist[this_key] = dist;
+                    computed_dist[reverse_key] = dist;
+                }
+                
+                if (dist < min_distance) {
+                    min_distance = dist;
+                }
+            }
+            // Record the current max distance segment and its id
+            if (max_distance < min_distance) {
+                max_distance = min_distance;
+                max_segment_idx = seg_id;
+            }
+        }
+        
+        // Insert max_segment_idx into selected_centers
+        selected_centers.push_back(max_segment_idx);
+        max_distances[i] = max_distance;
+    }
+    
+    // Determine the number of clusters we need to use
+    int n_clusters = 0;
+    float threshold = POSITIVE_INFINITY;
+    bool threshold_selected = false;
+    for (int i = MAX_CLUSTERS-1; i >= 0; --i) {
+        if (max_distances[i] > 1e-3 && !threshold_selected) {
+            threshold = 1.5*max_distances[i];
+            threshold_selected = true;
+            //printf("Min value is: %.2f\n", threshold);
+        }
+        if (max_distances[i] > threshold) {
+            n_clusters = i + 2;
+            break;
+        }
+    }
+    
+    // Initialiaze tmp_clusters
+    for (int i = 0; i < n_clusters; ++i) {
+        vector<int> new_cluster;
+        new_cluster.push_back(selected_centers[i]);
+        tmp_clusters.push_back(new_cluster);
+        remaining_segments.erase(selected_centers[i]);
+    }
+    
+    // Put remaining segments to clusters
+    for (set<int>::iterator it=remaining_segments.begin(); it != remaining_segments.end(); ++it) {
+        int seg_id = *it;
+        float min_distance = POSITIVE_INFINITY;
+        int min_cluster_id = -1;
+        // Compute distance between current segment and the already selected cluster center segments.
+        for (size_t ith_cluster = 0; ith_cluster < tmp_clusters.size(); ++ith_cluster) {
+            int other_seg_id = tmp_clusters[ith_cluster][0];
+            // Reuse distance if it has been computed before
+            key_type this_key(seg_id, other_seg_id);
+            key_type reverse_key(other_seg_id, seg_id);
+            map<key_type, float>::iterator m_it = computed_dist.find(this_key);
+            float dist = 0.0f;
+            if (m_it != computed_dist.end()) {
+                dist = m_it->second;
+            }
+            else{
+                // Compute dist.
+                dist = computeSegmentDistance(seg_id, other_seg_id, sigma);
+                // Insert the computed dist for reuse.
+                computed_dist[this_key] = dist;
+                computed_dist[reverse_key] = dist;
+            }
+            
+            if (dist < min_distance) {
+                min_distance = dist;
+                min_cluster_id = ith_cluster;
+            }
+        }
+        if (min_cluster_id != -1)
+            tmp_clusters[min_cluster_id].push_back(seg_id);
+    }
+    
+    // Record GOOD clusters into clusters.
+    clusters.clear();
+    clusters_.clear();
+    for (int i = 0; i < tmp_clusters.size(); ++i) {
+        vector<int> &cluster = tmp_clusters[i];
+        if (cluster.size() >= minClusterSize) {
+            clusters.push_back(cluster);
+            clusters_.push_back(cluster);
+        }
+    }
+    
+    //clock_t end = clock();
+    //double elapsed_time = double(end - begin) / CLOCKS_PER_SEC;
+    //printf("Clustering %lu segments took %.1f sec.\n", nearby_segment_idxs.size(), elapsed_time);
+    
+    // Visualization
+    segments_to_draw_for_samples_.clear();
+    segments_to_draw_for_samples_colors_.clear();
+    for (size_t cluster_id = 0; cluster_id < clusters.size(); ++cluster_id) {
+        vector<int> &cluster = clusters[cluster_id];
+        Color cluster_color = ColorMap::getInstance().getDiscreteColor(cluster_id);
+        for (size_t i = 0; i < cluster.size(); ++i) {
+            segments_to_draw_for_samples_.push_back(cluster[i]);
+            segments_to_draw_for_samples_colors_.push_back(cluster_color);
+        }
+    }
+    updateSelectedSegments();
+    
+    // Write clustering results to .txt file
+    ofstream test;
+    test.open("clustering_results.txt");
+    test<<clusters.size()<<endl;
+    for (size_t i = 0; i < clusters.size(); ++i) {
+        vector<int> &cluster = clusters[i];
+        test << cluster.size() << endl;
+        for (size_t j = 0; j < cluster.size(); ++j) {
+            Segment s = segments_[cluster[j]];
+            test << s.points().size() <<endl;
+            for (size_t k = 0; k < s.points().size(); ++k) {
+                test << s.points()[k].x << " " << s.points()[k].y << " " << s.points()[k].t << endl;
+            }
+        }
+    }
+    
+    test.close();
+    
+    return clusters.size();
+}
+
+int Trajectories::fpsMultiSiteSegmentClustering(vector<int> selected_samples, double sigma, int minClusterSize, vector<vector<int>> &clusters){
+    set<int> nearby_segment_idxs;
+    // Search GPS points around the each sample point
+    for(size_t i = 0; i < selected_samples.size(); ++i){
+        int sample_id = selected_samples[i];
+        vector<int> k_indices;
+        vector<float> k_distances;
+        tree_->radiusSearch(samples_->at(sample_id), search_range_, k_indices, k_distances);
+        
+        for (size_t i = 0; i < k_indices.size(); ++i) {
+            if (!segments_[k_indices[i]].quality()) {
+                continue;
+            }
+            nearby_segment_idxs.insert(k_indices[i]);
+        }
+    }
+    
+    if (nearby_segment_idxs.size() == 0)
+        return 0;
+    
+    int first_idx = rand() % nearby_segment_idxs.size();
+    int first_segment_id = -1;
+    
+    clock_t begin = clock();
+    set<int> remaining_segments;
+    int i = 0;
+    for(set<int>::iterator it = nearby_segment_idxs.begin(); it != nearby_segment_idxs.end(); ++it){
+        if (i == first_idx) {
+            first_segment_id = *it;
+            continue;
+        }
+        remaining_segments.insert(*it);
+        ++i;
+    }
+    
+    // Start furthest point clustering
+    vector<vector<int>> tmp_clusters;
+    typedef pair<int, int> key_type;
+    map<key_type, float> computed_dist;
+    
+    int MAX_CLUSTERS = 20;
+    vector<float> max_distances(MAX_CLUSTERS, 0.0f);
+    vector<int> selected_centers;
+    selected_centers.push_back(first_segment_id);
+    for (int i=0; i < MAX_CLUSTERS-1; ++i){
+        float max_distance = -1;
+        int max_segment_idx = -1;
+        for (set<int>::iterator it=remaining_segments.begin(); it != remaining_segments.end(); ++it) {
+            int seg_id = *it;
+            float min_distance = POSITIVE_INFINITY;
+            // Compute distance between current segment and the already selected cluster center segments.
+            for (size_t ith_selected = 0; ith_selected < selected_centers.size(); ++ith_selected) {
+                int other_seg_id = selected_centers[ith_selected];
+                // Reuse distance if it has been computed before
+                key_type this_key(seg_id, other_seg_id);
+                key_type reverse_key(other_seg_id, seg_id);
+                map<key_type, float>::iterator m_it = computed_dist.find(this_key);
+                float dist = 0.0f;
+                if (m_it != computed_dist.end()) {
+                    dist = m_it->second;
+                }
+                else{
+                    // Compute dist.
+                    dist = computeSegmentDistance(seg_id, other_seg_id, sigma);
+                    // Insert the computed dist for reuse.
+                    computed_dist[this_key] = dist;
+                    computed_dist[reverse_key] = dist;
+                }
+                
+                if (dist < min_distance) {
+                    min_distance = dist;
+                }
+            }
+            // Record the current max distance segment and its id
+            if (max_distance < min_distance) {
+                max_distance = min_distance;
+                max_segment_idx = seg_id;
+            }
+        }
+        
+        // Insert max_segment_idx into selected_centers
+        selected_centers.push_back(max_segment_idx);
+        max_distances[i] = max_distance;
+    }
+    
+    // Determine the number of clusters we need to use
+    int n_clusters = 0;
+    float threshold = POSITIVE_INFINITY;
+    bool threshold_selected = false;
+    for (int i = MAX_CLUSTERS-1; i >= 0; --i) {
+        if (max_distances[i] > 1e-3 && !threshold_selected) {
+            threshold = 1.5*max_distances[i];
+            threshold_selected = true;
+            //printf("Min value is: %.2f\n", threshold);
+        }
+        if (max_distances[i] > threshold) {
+            n_clusters = i + 2;
+            break;
+        }
+    }
+    
+    // Initialiaze tmp_clusters
+    for (int i = 0; i < n_clusters; ++i) {
+        vector<int> new_cluster;
+        new_cluster.push_back(selected_centers[i]);
+        tmp_clusters.push_back(new_cluster);
+        remaining_segments.erase(selected_centers[i]);
+    }
+    
+    // Put remaining segments to clusters
+    for (set<int>::iterator it=remaining_segments.begin(); it != remaining_segments.end(); ++it) {
+        int seg_id = *it;
+        float min_distance = POSITIVE_INFINITY;
+        int min_cluster_id = -1;
+        // Compute distance between current segment and the already selected cluster center segments.
+        for (size_t ith_cluster = 0; ith_cluster < tmp_clusters.size(); ++ith_cluster) {
+            int other_seg_id = tmp_clusters[ith_cluster][0];
+            // Reuse distance if it has been computed before
+            key_type this_key(seg_id, other_seg_id);
+            key_type reverse_key(other_seg_id, seg_id);
+            map<key_type, float>::iterator m_it = computed_dist.find(this_key);
+            float dist = 0.0f;
+            if (m_it != computed_dist.end()) {
+                dist = m_it->second;
+            }
+            else{
+                // Compute dist.
+                dist = computeSegmentDistance(seg_id, other_seg_id, sigma);
+                // Insert the computed dist for reuse.
+                computed_dist[this_key] = dist;
+                computed_dist[reverse_key] = dist;
+            }
+            
+            if (dist < min_distance) {
+                min_distance = dist;
+                min_cluster_id = ith_cluster;
+            }
+        }
+        if (min_cluster_id != -1)
+            tmp_clusters[min_cluster_id].push_back(seg_id);
+    }
+    
+    // Record GOOD clusters into clusters.
+    clusters.clear();
+    clusters_.clear();
+    for (int i = 0; i < tmp_clusters.size(); ++i) {
+        vector<int> &cluster = tmp_clusters[i];
+        if (cluster.size() >= minClusterSize) {
+            clusters.push_back(cluster);
+            clusters_.push_back(cluster);
+        }
+    }
+    
+    clock_t end = clock();
+    double elapsed_time = double(end - begin) / CLOCKS_PER_SEC;
+    printf("Clustering %lu segments took %.1f sec.\n", nearby_segment_idxs.size(), elapsed_time);
+    
+    // Visualization
+    segments_to_draw_for_samples_.clear();
+    segments_to_draw_for_samples_colors_.clear();
+    for (size_t cluster_id = 0; cluster_id < clusters.size(); ++cluster_id) {
+        vector<int> &cluster = clusters[cluster_id];
+        Color cluster_color = ColorMap::getInstance().getDiscreteColor(cluster_id);
+        for (size_t i = 0; i < cluster.size(); ++i) {
+            segments_to_draw_for_samples_.push_back(cluster[i]);
+            segments_to_draw_for_samples_colors_.push_back(cluster_color);
+        }
+    }
+    updateSelectedSegments();
+    
+    // Write clustering results to .txt file
+//    ofstream test;
+//    test.open("clustering_results.txt");
+//    test<<clusters.size()<<endl;
+//    for (size_t i = 0; i < clusters.size(); ++i) {
+//        vector<int> &cluster = clusters[i];
+//        test << cluster.size() << endl;
+//        for (size_t j = 0; j < cluster.size(); ++j) {
+//            Segment s = segments_[cluster[j]];
+//            test << s.points().size() <<endl;
+//            for (size_t k = 0; k < s.points().size(); ++k) {
+//                test << s.points()[k].x << " " << s.points()[k].y << " " << s.points()[k].t << endl;
+//            }
+//        }
+//    }
+//    test.close();
+    
+    return clusters.size();
+}
+
+void Trajectories::showClusterAtIdx(int idx){
+    if (idx < 0 || idx >= clusters_.size())
+        return;
+    
+    segments_to_draw_for_samples_.clear();
+    segments_to_draw_for_samples_colors_.clear();
+    vector<int> &cluster = clusters_[idx];
+    
+    Color cluster_color = ColorMap::getInstance().getDiscreteColor(idx);
+    for (size_t i = 0; i < cluster.size(); ++i) {
+        segments_to_draw_for_samples_.push_back(cluster[i]);
+        segments_to_draw_for_samples_colors_.push_back(cluster_color);
+    }
+    updateSelectedSegments();
+}
+
 float Trajectories::computeSegmentDistance(int seg_idx1, int seg_idx2, double sigma){
     // Dynamic Time Wraping distance using different search range with t.
     Segment &seg1 = segments_[seg_idx1];
     Segment &seg2 = segments_[seg_idx2];
     
     if(seg1.points().size() < 2 || seg2.points().size() < 2)
-        return 1e6;
+        return POSITIVE_INFINITY;
     
     // Add head and tail nodes for DTWD
     SegPoint &seg1_start = seg1.points()[0];
-    SegPoint &seg1_end = seg1.points()[seg1.points().size()-1];
+    int seg1_size = seg1.points().size();
+    SegPoint &seg1_end = seg1.points()[seg1_size-1];
+    
     SegPoint &seg2_start = seg2.points()[0];
-    SegPoint &seg2_end = seg2.points()[seg2.points().size()-1];
+    int seg2_size = seg2.points().size();
+    SegPoint &seg2_end = seg2.points()[seg2_size-1];
     
     float seg1_radius1 = sigma * abs(seg1_start.t);
     float seg1_radius2 = sigma * abs(seg1_end.t);
     float seg2_radius1 = sigma * abs(seg2_start.t);
     float seg2_radius2 = sigma * abs(seg2_end.t);
     
-    float delta_x1 = seg1_start.x - seg2_start.x;
-    float delta_y1 = seg1_start.y - seg2_start.y;
-    float dist1 = sqrt(delta_x1*delta_x1 + delta_y1*delta_y1);  - seg1_radius1 - seg2_radius1;
-    if (dist1 < 0.0f) {
-        dist1 = 0.0f;
-    }
+    float delta1_x = seg1_start.x - seg2_start.x;
+    float delta1_y = seg1_start.y - seg2_start.y;
+    float dist1 = sqrt(delta1_x*delta1_x+delta1_y*delta1_y);
     
-    float delta_x2 = seg1_end.x - seg2_end.x;
-    float delta_y2 = seg1_end.y - seg2_end.y;
-    float dist2 = sqrt(delta_x2*delta_x2 + delta_y2*delta_y2);  - seg1_radius2 - seg2_radius2;
-    if (dist2 < 0.0f) {
-        dist2 = 0.0f;
-    }
+    float delta2_x = seg1_end.x - seg2_end.x;
+    float delta2_y = seg1_end.y - seg2_end.y;
+    float dist2 = sqrt(delta2_x*delta2_x+delta2_y*delta2_y);
     
-    return dist1+dist2;
-
-    // For example, if seg1 has 4 points, new_seg_idx1 will become [0, 1, 2, 3]
-    vector<int> new_seg_idx1(seg1.points().size(), -1);
-    vector<int> new_seg_idx2(seg2.points().size(), -1);
+    float delta3_x = seg1_start.x - seg2_end.x;
+    float delta3_y = seg1_start.y - seg2_end.y;
+    float dist3 = sqrt(delta3_x*delta3_x+delta3_y*delta3_y);
     
-    for (size_t i = 0; i < seg1.points().size(); ++i) {
-        new_seg_idx1[i] = i;
-    }
+    float delta4_x = seg1_end.x - seg2_start.x;
+    float delta4_y = seg1_end.y - seg2_start.y;
+    float dist4 = sqrt(delta4_x*delta4_x+delta4_y*delta4_y);
     
-    for (size_t i = 0; i < seg2.points().size(); ++i) {
-        new_seg_idx2[i] = i;
-    }
+    float tmp_dist1 = dist1 - seg1_radius1 - seg2_radius1;
+    float tmp_dist2 = dist2 - seg1_radius2 - seg2_radius2;
     
-    int n = seg1.points().size();
-    int m = seg2.points().size();
-    vector<vector<float>> DTW(n+1, vector<float>(m+1, 1e6));
+    if (tmp_dist1 < 0)
+        tmp_dist1 = 0.0f;
+    if (tmp_dist2 < 0)
+        tmp_dist2 = 0.0f;
     
-    DTW[0][0] = 0.0f;
+    float penalty = 10.0f;
     
-    for (size_t i = 1; i < n+1; ++i) {
-        for (size_t j = 1; j < m+1; ++j) {
-            float cost = segPointDistance(new_seg_idx1[i-1], new_seg_idx2[j-1], seg1, seg2, sigma);
-            float min1 = (DTW[i-1][j] < DTW[i][j-1]) ? DTW[i-1][j] : DTW[i][j-1];
-            float min2 = (min1 < DTW[i-1][j-1]) ? min1 : DTW[i-1][j-1];
-            DTW[i][j] = cost + min2;
-        }
-    }
+    float dist = tmp_dist1 + tmp_dist2;
     
-    return DTW[n][m];
+    if (dist1 + dist2 > dist3 + dist4)
+        dist *= penalty;
+    
+    return dist;
 }
 
 float Trajectories::segPointDistance(int idx1, int idx2, Segment &seg1, Segment &seg2, double sigma){
@@ -1562,15 +2286,107 @@ float Trajectories::segPointDistance(int idx1, int idx2, Segment &seg1, Segment 
     return dist;
 }
 
+void Trajectories::computeDistanceGraph(){
+    if (distance_graph_ != NULL) {
+        delete distance_graph_;
+    }
+    
+    distance_graph_ = new DistanceGraph();
+    float grid_size = 10; //in meters
+    samplePointCloud(grid_size, distance_graph_vertices_, distance_graph_search_tree_);
+    
+    distance_graph_->computeGraphUsingGpsPointCloud(data_, tree_, distance_graph_vertices_, distance_graph_search_tree_, grid_size);
+    prepareForVisualization(display_bound_box_);
+   
+    distance_graph_->Distance(data_->at(10), data_->at(10000));
+}
+
+void Trajectories::samplePointCloud(float neighborhood_size, PclPointCloud::Ptr &samples, PclSearchTree::Ptr &sample_tree){
+    float delta_x = bound_box_[1] - bound_box_[0];
+    float delta_y = bound_box_[3] - bound_box_[2];
+    if (neighborhood_size > delta_x || neighborhood_size > delta_y) {
+        fprintf(stderr, "ERROR: Neighborhood size is bigger than the trajectory boundbox!\n");
+        return;
+    }
+    printf("bound box: %.2f, %.2f, %.2f, %.2f\n", bound_box_[0], bound_box_[1], bound_box_[2], bound_box_[3]);
+    
+    // Clear samples
+    PclPoint point;
+    samples->clear();
+    
+    // Compute samples
+    // Initialize the samples using a unified grid
+    vector<Vertex> seed_samples;
+    set<long> grid_idxs;
+    int n_x = static_cast<int>(delta_x / neighborhood_size) + 1;
+    int n_y = static_cast<int>(delta_y / neighborhood_size) + 1;
+    float step_x = delta_x / n_x;
+    float step_y = delta_y / n_y;
+    for (size_t pt_idx = 0; pt_idx < data_->size(); ++pt_idx) {
+        PclPoint &point = data_->at(pt_idx);
+        long pt_i = floor((point.x - bound_box_[0]) / step_x);
+        long pt_j = floor((point.y - bound_box_[2]) / step_y);
+        if (pt_i == n_x){
+            pt_i -= 1;
+        }
+        if (pt_j == n_y) {
+            pt_j -= 1;
+        }
+        long idx = pt_i + pt_j*n_x;
+        grid_idxs.insert(idx);
+    }
+    for (set<long>::iterator it = grid_idxs.begin(); it != grid_idxs.end(); ++it) {
+        long idx = *it;
+        int pt_i = idx % n_x;
+        int pt_j = idx / n_x;
+        float pt_x = bound_box_[0] + (pt_i+0.5)*step_x;
+        float pt_y = bound_box_[2] + (pt_j+0.5)*step_y;
+        seed_samples.push_back(Vertex(pt_x, pt_y, 0.0));
+    }
+    
+    int n_iter = 1;
+    float search_radius = (step_x > step_y) ? step_x : step_y;
+    search_radius /= sqrt(2.0);
+    search_radius += 1.0;
+    for (size_t i_iter = 0; i_iter < n_iter; ++i_iter) {
+        // For each seed, search its neighbors and do an average
+        for (vector<Vertex>::iterator it = seed_samples.begin(); it != seed_samples.end(); ++it) {
+            PclPoint search_point;
+            search_point.setCoordinate((*it).x, (*it).y, 0.0f);
+            // Search nearby and mark nearby
+            vector<int> k_indices;
+            vector<float> k_distances;
+            tree_->radiusSearch(search_point, search_radius, k_indices, k_distances);
+            
+            if (k_indices.size() == 0) {
+                printf("WARNING!!! Empty sampling cell! %.1f, %.1f\n", search_point.x, search_point.y);
+                continue;
+            }
+            float sum_x = 0.0;
+            float sum_y = 0.0;
+            for (vector<int>::iterator neighbor_it = k_indices.begin(); neighbor_it != k_indices.end(); ++neighbor_it) {
+                PclPoint &nb_pt = data_->at(*neighbor_it);
+                sum_x += nb_pt.x;
+                sum_y += nb_pt.y;
+            }
+            
+            sum_x /= k_indices.size();
+            sum_y /= k_indices.size();
+            
+            point.setCoordinate(sum_x, sum_y, 0.0f);
+			point.t = 0;
+			point.id_trajectory = 0;
+			point.id_sample = 0;
+            
+			samples->push_back(point);
+        }
+    }
+    
+    sample_tree->setInputCloud(samples);
+    printf("Sampling Done. Totally %zu samples.\n", samples->size());
+}
+
 void Trajectories::samplePointCloud(float neighborhood_size){
-//        // Search nearby and mark nearby
-//        vector<int> k_indices;
-//        vector<float> k_distances;
-//        tree_->radiusSearch(data_->at(i), 1.0, k_indices, k_distances);
-//        
-//        // Mark neighbors
-//        for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
-//            point_marked[*it] = true;
     float delta_x = bound_box_[1] - bound_box_[0];
     float delta_y = bound_box_[3] - bound_box_[2];
     if (neighborhood_size > delta_x || neighborhood_size > delta_y) {

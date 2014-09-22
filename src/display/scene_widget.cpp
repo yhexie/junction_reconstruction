@@ -120,7 +120,7 @@ void SceneWidget::mousePressEvent(QMouseEvent *event)
 
 void SceneWidget::mouseMoveEvent(QMouseEvent *event)
 {
-    if (event->buttons() & Qt::LeftButton) {
+    if (event->buttons() & Qt::RightButton) {
         int dx = event->x() - lastPos.x();
         int dy = event->y() - lastPos.y();
         //setXRotation(xRot + 8*dx);
@@ -128,12 +128,12 @@ void SceneWidget::mouseMoveEvent(QMouseEvent *event)
         setXTranslate(xTrans + dx);
         setYTranslate(yTrans - dy);
     }
-    else if(event->buttons() & Qt::RightButton){
-        int dx = event->x() - lastPos.x();
-        int dy = event->y() - lastPos.y();
-        setXTranslate(xTrans + dx);
-        setYTranslate(yTrans - dy);
-    }
+//    else if(event->buttons() & Qt::LeftButton){
+//        int dx = event->x() - lastPos.x();
+//        int dy = event->y() - lastPos.y();
+//        setXTranslate(xTrans + dx);
+//        setYTranslate(yTrans - dy);
+//    }
     lastPos = event->pos();
 }
 
@@ -437,22 +437,48 @@ void SceneWidget::slotSetShowMap(int state){
 }
 
 void SceneWidget::slotClusterSegmentsAtSample(void){
-    set<int> &picked_sample = trajectories_->picked_sample_idxs();
-    if (picked_sample.size() == 0) {
+    set<int> &picked_samples = trajectories_->picked_sample_idxs();
+    if (picked_samples.size() == 0) {
         return;
     }
-    int sample_id = *picked_sample.begin();
+    
+    vector<int> selected_samples;
+    for(set<int>::iterator it = picked_samples.begin(); it != picked_samples.end(); ++it){
+        selected_samples.push_back(*it);
+    }
     
     MainWindow* main_window = MainWindow::getInstance();
     double sigmaValue = main_window->getSigmaValue();
-    double thresholdValue = main_window->getThresholdValue();
     int minClusterSize = main_window->getMinClusterSize();
-    int n_cluster = trajectories_->clusterSegmentsUsingDistanceAtSample(sample_id, sigmaValue, thresholdValue, minClusterSize);
+    //int n_cluster = trajectories_->clusterSegmentsUsingDistanceAtSample(sample_id, sigmaValue, thresholdValue, minClusterSize);
+    vector<vector<int>> clusters;
+    int n_cluster = trajectories_->fpsMultiSiteSegmentClustering(selected_samples, sigmaValue, minClusterSize, clusters);
     QString str;
     QTextStream(&str) << n_cluster << " cluster extracted.";
     main_window->showInStatusBar(str);
     //trajectories_->clusterSegmentsWithGraphAtSample(sample_id, graph_);
+    emit nClusterComputed(n_cluster);
     
+    updateGL();
+    
+}
+
+void SceneWidget::slotClusterSegmentsAtAllSamples(void){
+    MainWindow* main_window = MainWindow::getInstance();
+    double sigmaValue = main_window->getSigmaValue();
+    int minClusterSize = main_window->getMinClusterSize();
+    clock_t begin = clock();
+    trajectories_->clusterSegmentsAtAllSamples(sigmaValue, minClusterSize);
+    clock_t end = clock();
+    double time_elapsed = double(end - begin) / CLOCKS_PER_SEC;
+    QString str;
+    QTextStream(&str) << "Clustering completed. Time elapsed: "<<time_elapsed <<" sec.";
+    main_window->showInStatusBar(str);
+    updateGL();
+}
+
+void SceneWidget::slotPickClusterAtIdx(int cluster_idx){
+    trajectories_->showClusterAtIdx(cluster_idx);
     updateGL();
 }
 
@@ -570,6 +596,25 @@ void SceneWidget::slotComputePointCloudVariance(){
     updateGL();
 }
 
+void SceneWidget::slotSetShowDistanceGraph(int state){
+    if (state == Qt::Unchecked)
+        trajectories_->setShowDistanceGraph(false);
+    else
+        trajectories_->setShowDistanceGraph(true);
+    updateGL();
+}
+
+void SceneWidget::slotComputeDistanceGraph(){
+    if (trajectories_->isEmpty()){
+        QMessageBox msgBox;
+        msgBox.setText("Please loat trajectories first.");
+        msgBox.exec();
+        return;
+    }
+    trajectories_->computeDistanceGraph();
+    updateGL();
+}
+
 //void SceneWidget::slotOpenOsmFile(QModelIndex index){
 //}
 
@@ -609,8 +654,12 @@ void SceneWidget::slotInitializeGraph(void){
         return;
     }
     
-    //graph_->updateGraphUsingSamplesAndSegments(trajectories_->samples(), trajectories_->sample_tree(), trajectories_->segments(), trajectories_->data(), trajectories_->tree());
-    graph_->updateGraphUsingSamplesAndGpsPointCloud(trajectories_->samples(), trajectories_->sample_tree(),  trajectories_->data(), trajectories_->tree());
+    //graph_->updateGraphUsingSamplesAndSegments(trajectories_->samples(), trajectories_->sample_tree(), trajectories_->segments(), trajectories_->sample_segment_clusters(), trajectories_->sample_cluster_sizes(), trajectories_->data(), trajectories_->tree());
+    //graph_->updateGraphUsingSamplesAndGpsPointCloud(trajectories_->samples(), trajectories_->sample_tree(),  trajectories_->data(), trajectories_->tree());
+    graph_->updateGraphUsingDescriptor(trajectories_->cluster_centers(), trajectories_->cluster_center_search_tree(), trajectories_->descriptors(), trajectories_->cluster_popularity(), trajectories_->data(), trajectories_->tree());
+    
+    trajectories_->setGraph(graph_);
+    trajectories_->prepareForVisualization(bound_box_);
     graph_->prepareForVisualization(bound_box_);
     
     // Generate information
@@ -635,7 +684,7 @@ void SceneWidget::slotUpdateGraph(void){
         return;
     }
     
-    graph_->updateGraphUsingSamplesAndSegments(trajectories_->samples(), trajectories_->sample_tree(), trajectories_->segments(), trajectories_->data(), trajectories_->tree());
+    //graph_->updateGraphUsingSamplesAndSegments(trajectories_->samples(), trajectories_->sample_tree(), trajectories_->segments(), trajectories_->sample_segment_clusters(), trajectories_->sample_cluster_sizes(),trajectories_->data(), trajectories_->tree());
     graph_->prepareForVisualization(bound_box_);
     
     // Generate information
