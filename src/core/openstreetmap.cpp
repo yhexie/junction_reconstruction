@@ -1,5 +1,21 @@
 #include "openstreetmap.h"
 #include "latlon_converter.h"
+#include <pcl/common/centroid.h>
+#include <pcl/search/impl/flann_search.hpp>
+#include <fstream>
+
+#include <Eigen/Dense>
+#include <Eigen/Eigenvalues>
+
+using namespace Eigen;
+
+OsmNode::OsmNode(void){
+    degree_ = 0;
+}
+
+OsmNode::~OsmNode(void){
+    
+}
 
 OsmWay::OsmWay(void) {
     is_oneway_ = false;
@@ -9,7 +25,8 @@ OsmWay::~OsmWay(void){
     
 }
 
-OpenStreetMap::OpenStreetMap(QObject *parent) : Renderable(parent)
+OpenStreetMap::OpenStreetMap(QObject *parent) : Renderable(parent),
+map_point_cloud_(new PclPointCloud), map_search_tree_(new pcl::search::FlannSearch<PclPoint>(false))
 {
     bound_box_ = QVector4D(1e10, -1e10, 1e10, -1e10);
     is_empty_ = true;
@@ -18,6 +35,8 @@ OpenStreetMap::OpenStreetMap(QObject *parent) : Renderable(parent)
     way_idxs_.clear();
     way_widths_.clear();
     ways_.clear();
+    nodes_.clear();
+    node_idx_map_.clear();
 }
 
 OpenStreetMap::~OpenStreetMap(){
@@ -33,7 +52,94 @@ bool OpenStreetMap::loadOSM(const string &filename){
     updateBoundBox();
     printf("bound box: min_e=%.2f, max_e=%.2f, min_n=%.2f, max_n=%.2f\n", bound_box_[0], bound_box_[1], bound_box_[2], bound_box_[3]);
     is_empty_ = false;
+    
+    // Compute map point cloud with 10m accuracy
+    PclPoint point;
+    point.setNormal(0, 0, 1);
+    for (size_t i = 0; i < ways_.size(); ++i) {
+        OsmWay &aWay = ways_[i];
+        if (aWay.eastings().size() == 0)
+            continue;
+        for (int j = 0; j < aWay.eastings().size()-1; ++j) {
+            Vector2d start(aWay.eastings()[j], aWay.northings()[j]);
+            Vector2d end(aWay.eastings()[j+1], aWay.northings()[j+1]);
+            Vector2d vec = end - start;
+            float length = vec.norm();
+            vec.normalize();
+            int n_pt = ceil(length / 5.0f) + 1;
+            if (n_pt < 2) {
+                n_pt = 2;
+            }
+            float delta_length = length / (n_pt - 1);
+            for (int k = 0; k < n_pt; ++k) {
+                Vector2d pt = start + vec * k * delta_length;
+                point.setCoordinate(pt.x(), pt.y(), 0.0f);
+                map_point_cloud_->push_back(point);
+            }
+        }
+    }
+    map_search_tree_->setInputCloud(map_point_cloud_);
+    
     return true;
+}
+
+bool OpenStreetMap::extractMapBranchingPoints(const string &filename){
+    int n_branching_pts = 0;
+    vector<double> lat;
+    vector<double> lon;
+    for (size_t i = 0; i < nodes_.size(); ++i) {
+        OsmNode &node = nodes_[i];
+        if (node.degree() >= 3) {
+            n_branching_pts += 1;
+            lat.push_back(node.lat());
+            lon.push_back(node.lon());
+        }
+    }
+    printf("There are %d branching points.\n", n_branching_pts);
+    ofstream output;
+    output.open(filename);
+    output << n_branching_pts << endl;
+    for(int i = 0; i < n_branching_pts; ++i){
+        output.precision(6);
+        output.setf( std::ios::fixed, std:: ios::floatfield );
+        output << lat[i] << ", " << lon[i] <<endl;
+    }
+    
+    output << nodes_.size() << endl;
+    for (size_t i = 0; i < nodes_.size(); ++i) {
+        OsmNode &node = nodes_[i];
+        output.setf( std::ios::fixed, std:: ios::floatfield );
+        output.precision(6);
+        output << node.lat() << ", " << node.lon() << endl;
+    }
+    output.close();
+    return true;
+}
+
+int OpenStreetMap::findNodeId(uint64_t ref_id){
+    map<uint64_t, int>::iterator it;
+    it = node_idx_map_.find(ref_id);
+    if (it == node_idx_map_.end()) {
+        return -1;
+    }
+    else{
+        return it->second;
+    }
+}
+
+bool OpenStreetMap::insertNode(uint64_t ref_id, double lat, double lon){
+    OsmNode newNode;
+    newNode.setLatLon(lat, lon);
+    
+    int node_id = nodes_.size();
+    bool result = node_idx_map_.emplace(ref_id, node_id).second;
+    if (result){
+        nodes_.push_back(newNode);
+        return true;
+    }
+    else{
+        return false;
+    }
 }
 
 void OpenStreetMap::pushAWay(OsmWay &aWay){
@@ -296,13 +402,31 @@ void MyShapeHandler::way(const boost::shared_ptr<Osmium::OSM::Way> &way){
     }
     
     // Process Way Geometry
-    Projector converter;
+    Projector &converter = Projector::getInstance();
     new_way.northings().resize(way_nodes.size());
     new_way.eastings().resize(way_nodes.size());
     int node_idx = 0;
     for (it = way_nodes.begin(); it != way_nodes.end(); ++it) {
         float x;
         float y;
+        int tmp_node_idx = osm_ptr_->findNodeId(it->ref());
+        if (tmp_node_idx != -1){
+            // Add to node degree
+            int delta_degree = 2;
+            if (node_idx == 0 || node_idx == way_nodes.size() - 1){
+                delta_degree = 1;
+            }
+            osm_ptr_->nodes()[tmp_node_idx].degree() += delta_degree;
+        }
+        else{
+            // Add a new nodes
+            osm_ptr_->insertNode(it->ref(), it->lat(), it->lon());
+            int delta_degree = 2;
+            if (node_idx == 0 || node_idx == way_nodes.size() - 1){
+                delta_degree = 1;
+            }
+            osm_ptr_->nodes().back().degree() += delta_degree;
+        }
         converter.convertLatlonToXY(it->lat(), it->lon(), x, y);
         new_way.eastings()[node_idx] = x;
         new_way.northings()[node_idx] = y;

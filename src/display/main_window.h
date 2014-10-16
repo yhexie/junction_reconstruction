@@ -44,6 +44,9 @@ public:
 	void showStatus(const std::string& status, int timeout=0);
     void showInStatusBar(const QString &str);
     
+    double getDBSCANEpsValue() { return ui_->dbscanEps->value(); }
+    int getDBSCANMinPtsValue() { return ui_->dbscanMinPts->value(); }
+    
     double getSigmaValue() {return ui_->sigmaValue->value(); }
     int getMinClusterSize() {return ui_->minClusterSize->value(); }
    
@@ -79,6 +82,8 @@ private slots:
     void slotNewSegmentsComputed(QString &);
     void slotNewGraphComputed(QString &);
     void slotSetNClusters(int &n_cluster);
+    void slotSetNDBSCANClusters(int &n_dbscan_cluster);
+    void slotSetUTMZone(int);
     
 private:
     void loadSettings();

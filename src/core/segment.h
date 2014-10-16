@@ -8,10 +8,12 @@ struct SegPoint {
     float x;
     float y;
     float t;
+    int head;
+    int speed;
     int orig_idx;
     
     SegPoint() {x = -1.0f; y = -1.0f; t = -1.0f;}
-    SegPoint(float vx, float vy, float vt, int vidx = -1) {x = vx; y = vy; t = vt; orig_idx = vidx;}
+    SegPoint(float vx, float vy, float vt, int vhead = 0, int vspeed = 0, int vidx = -1) {x = vx; y = vy; t = vt; orig_idx = vidx; head = vhead; speed = vspeed;}
 };
 
 

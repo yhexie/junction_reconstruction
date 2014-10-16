@@ -33,18 +33,33 @@ enum WAYTYPE{
     OTHER = 10
 };
 
+class OsmNode{
+public:
+    OsmNode(void);
+    ~OsmNode(void);
+    void setLatLon(double lat, double lon) {lat_ = lat; lon_ = lon;}
+    double lat() {return lat_;}
+    double lon() {return lon_;}
+    int &degree() {return degree_;}
+private:
+    double lat_;
+    double lon_;
+    int     degree_;
+};
+
 class OsmWay {
 public:
     OsmWay(void);
     ~OsmWay(void);
     vector<double> &eastings() {return eastings_;}
     vector<double> &northings() {return northings_;}
+    
     void setWayType(WAYTYPE type) {way_type_ = type;}
     bool isOneway() {return is_oneway_;}
     void setOneway(bool value) {is_oneway_ = value;}
     const WAYTYPE wayType() const {return way_type_;}
 private:
-    vector<double> eastings_; // Node indicies in node list
+    vector<double> eastings_;
     vector<double> northings_;
     WAYTYPE way_type_;
     bool is_oneway_;
@@ -61,14 +76,23 @@ public:
     bool isEmpty() const {return is_empty_;}
     void draw();
     bool loadOSM(const string &filename);
+    bool extractMapBranchingPoints(const string &filename);
+    int findNodeId(uint64_t ref_id);
+    bool insertNode(uint64_t ref_id, double lat, double lon);
+    vector<OsmNode> &nodes() { return nodes_; }
+    int currentWayId() { return ways_.size(); }
     
     void pushAWay(OsmWay &aWay);
     void updateBoundBox();
     const QVector4D&    BoundBox(void) const {return bound_box_;}
     void clearData(void);
     
+    PclSearchTree::Ptr  &map_search_tree() {return map_search_tree_;}
+    
 private:
     QVector4D                   bound_box_;
+    PclPointCloud::Ptr          map_point_cloud_;
+    PclSearchTree::Ptr          map_search_tree_;
     bool                        is_empty_;
     vector<Vertex>              normalized_vertices_;
     vector<Color>               vertex_colors_;
@@ -78,7 +102,9 @@ private:
     
     vector<vector<unsigned> >   way_idxs_;
     vector<int>            way_widths_;
-    
+   
+    map<uint64_t, int>          node_idx_map_;
+    vector<OsmNode>             nodes_;
     vector<OsmWay>              ways_;
 };
 

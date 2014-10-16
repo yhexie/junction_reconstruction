@@ -204,6 +204,11 @@ void SceneWidget::setYTranslate(int deltaY){
 
 void SceneWidget::initializeGL(){
     glEnable(GL_DEPTH_TEST);
+    glEnable(GL_LINE_SMOOTH);
+    glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
+    glEnable(GL_BLEND);
+    glBlendEquation(GL_SRC_ALPHA | GL_ONE_MINUS_SRC_ALPHA);
+    glBlendColor(1.0, 0.0, 0.0, 0.5);
     m_program_ = new CustomizedShaderProgram(this);
     trajectories_->setShadderProgram(m_program_);
     osmMap_->setShadderProgram(m_program_);
@@ -215,7 +220,7 @@ void SceneWidget::paintGL(){
     const qreal retinaScale = devicePixelRatio();
     glViewport(0, 0, width() * retinaScale, height() * retinaScale);
     
-    qglClearColor(QColor(230, 230, 230));
+    qglClearColor(QColor(220, 220, 220));
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     m_program_->bind();
     view_matrix_.setToIdentity();
@@ -341,7 +346,7 @@ void SceneWidget::updateMaxScaleFactor(){
     float delta_x = bound_box_[1] - bound_box_[0];
     float delta_y = bound_box_[3] - bound_box_[2];
     float delta_boundary = (delta_x > delta_y) ? delta_x : delta_y;
-    maxScaleFactor_ = delta_boundary / 100.0;
+    maxScaleFactor_ = delta_boundary / 20.0;
 }
 
 void SceneWidget::slotOpenTrajectories(void)
@@ -436,6 +441,19 @@ void SceneWidget::slotSetShowMap(int state){
     updateGL();
 }
 
+void SceneWidget::slotExtractMapBranchingPoints(){
+        MainWindow* main_window = MainWindow::getInstance();
+        
+        QString filename = QFileDialog::getSaveFileName(main_window, "Save to file",
+                                                        main_window->getWorkspace().c_str(), "Trajectories (*.txt)");
+        if (filename.isEmpty())
+            return;
+        
+        osmMap_->extractMapBranchingPoints(filename.toStdString());
+        
+        return;
+}
+
 void SceneWidget::slotClusterSegmentsAtSample(void){
     set<int> &picked_samples = trajectories_->picked_sample_idxs();
     if (picked_samples.size() == 0) {
@@ -480,6 +498,35 @@ void SceneWidget::slotClusterSegmentsAtAllSamples(void){
 void SceneWidget::slotPickClusterAtIdx(int cluster_idx){
     trajectories_->showClusterAtIdx(cluster_idx);
     updateGL();
+}
+
+void SceneWidget::slotExportSampleSegments(){
+    MainWindow* main_window = MainWindow::getInstance();
+    
+    QString filename = QFileDialog::getSaveFileName(main_window, "Save Sample Clusters",
+                                                    main_window->getWorkspace().c_str(), "(*.txt)");
+    if (filename.isEmpty())
+        return;
+    
+    trajectories_->exportSampleSegments(filename.toStdString());
+}
+
+void SceneWidget::slotExtractSampleFeatures(){
+    if (trajectories_->samples()->size() == 0){
+        QMessageBox msgBox;
+        msgBox.setText("Please do sampling first.");
+        msgBox.exec();
+        return;
+    }
+    
+    MainWindow* main_window = MainWindow::getInstance();
+    
+    QString filename = QFileDialog::getSaveFileName(main_window, "Save Sample Descriptors to",
+                                                    main_window->getWorkspace().c_str(), "(*.txt)");
+    if (filename.isEmpty())
+        return;
+    
+    trajectories_->extractSampleFeatures(filename.toStdString());
 }
 
 void SceneWidget::toggleTrajectories(void)
@@ -582,7 +629,7 @@ void SceneWidget::slotExtractTrajectories(void){
 	if (filenames.isEmpty())
 		return;
     
-    trajectories_->extractFromFiles(filenames, bound_box_, 2);
+    trajectories_->extractFromFiles(filenames, bound_box_, osmMap_->map_search_tree());
     updateSceneBoundary(trajectories_->BoundBox());
     updateGL();
 }
@@ -612,6 +659,85 @@ void SceneWidget::slotComputeDistanceGraph(){
         return;
     }
     trajectories_->computeDistanceGraph();
+    updateGL();
+}
+
+void SceneWidget::slotSetShowDirection(int state){
+    if (state == Qt::Unchecked)
+        trajectories_->setShowDirection(false);
+    else
+        trajectories_->setShowDirection(true);
+    updateGL();
+}
+
+void SceneWidget::slotDBSCAN(){
+    if (trajectories_->isEmpty()){
+        QMessageBox msgBox;
+        msgBox.setText("Please load trajectories first.");
+        msgBox.exec();
+        return;
+    }
+    
+    MainWindow* main_window = MainWindow::getInstance();
+    double eps = main_window->getDBSCANEpsValue();
+    int minPts = main_window->getDBSCANMinPtsValue();
+   
+    trajectories_->DBSCAN(eps, minPts);
+    int n_dbscan_clusters = trajectories_->DBSCANNumClusters();
+    emit nDBSCANClusterComputed(n_dbscan_clusters);
+    updateGL();
+}
+
+void SceneWidget::slotSampleDBSCANClusters(){
+    if (trajectories_->isEmpty()){
+        QMessageBox msgBox;
+        msgBox.setText("Please load trajectory file first.");
+        msgBox.exec();
+        return;
+    }
+    if (trajectories_->DBSCANNumClusters() == 0){
+        QMessageBox msgBox;
+        msgBox.setText("Please do DBSCAN clustering first.");
+        msgBox.exec();
+        return;
+    }
+    bool ok;
+    double d = QInputDialog::getDouble(this, tr("Set Sampling Parameter"), tr("Neighborhood Size (in meters):"), 50.0, 1.0, 250.0, 1, &ok);
+    if (ok) {
+        trajectories_->sampleDBSCANClusters(static_cast<float>(d));
+        trajectories_->prepareForVisualization(bound_box_);
+        
+        // Output information
+        QString str;
+        QTextStream(&str) <<trajectories_->samples()->size() << " samples. Grid size: "<<d << " m.";
+        emit newSamplesDrawn(str);
+        updateGL();
+    }
+}
+
+void SceneWidget::slotSelectClusterAt(int clusterId){
+    if (trajectories_->DBSCANNumClusters() == 0){
+        return;
+    }
+    trajectories_->selectDBSCANClusterAt(clusterId);
+    updateGL();
+}
+
+void SceneWidget::slotShowAllClusters(){
+    if (trajectories_->DBSCANNumClusters() == 0){
+        return;
+    }
+    trajectories_->showAllDBSCANClusters();
+    updateGL();
+}
+
+void SceneWidget::slotCutTraj(){
+    trajectories_->cutTraj();
+    updateGL();
+}
+
+void SceneWidget::slotMergePathlet(){
+    trajectories_->mergePathlet();
     updateGL();
 }
 
@@ -655,8 +781,10 @@ void SceneWidget::slotInitializeGraph(void){
     }
     
     //graph_->updateGraphUsingSamplesAndSegments(trajectories_->samples(), trajectories_->sample_tree(), trajectories_->segments(), trajectories_->sample_segment_clusters(), trajectories_->sample_cluster_sizes(), trajectories_->data(), trajectories_->tree());
-    //graph_->updateGraphUsingSamplesAndGpsPointCloud(trajectories_->samples(), trajectories_->sample_tree(),  trajectories_->data(), trajectories_->tree());
-    graph_->updateGraphUsingDescriptor(trajectories_->cluster_centers(), trajectories_->cluster_center_search_tree(), trajectories_->descriptors(), trajectories_->cluster_popularity(), trajectories_->data(), trajectories_->tree());
+    graph_->updateGraphUsingDBSCANClustersAndSamples(trajectories_->samples(), trajectories_->sample_tree(),  trajectories_->data(), trajectories_->tree(), trajectories_->dbscanClusterSamples());
+    
+//    graph_->updateGraphUsingSamplesAndGpsPointCloud(trajectories_->samples(), trajectories_->sample_tree(),  trajectories_->data(), trajectories_->tree());
+//    graph_->updateGraphUsingDescriptor(trajectories_->cluster_centers(), trajectories_->cluster_center_search_tree(), trajectories_->descriptors(), trajectories_->cluster_popularity(), trajectories_->data(), trajectories_->tree());
     
     trajectories_->setGraph(graph_);
     trajectories_->prepareForVisualization(bound_box_);

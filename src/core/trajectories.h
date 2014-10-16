@@ -48,13 +48,14 @@ public:
     const size_t getNumTraj() const {return trajectories_.size();}
     const size_t getNumPoint() const {return data_->size();}
     
-    bool extractFromFiles(const QStringList &filenames, QVector4D bound_box, int min_inside_pts = 2);
-    bool extractTrajectoriesFromRegion(QVector4D bound_box, Trajectories *container, int min_inside_pts);
+    bool extractFromFiles(const QStringList &filenames, QVector4D bound_box, PclSearchTree::Ptr &map_search_tree, int min_inside_pts = 2);
+    bool extractTrajectoriesFromRegion(QVector4D bound_box, Trajectories *container, PclSearchTree::Ptr &map_search_tree, int min_inside_pts);
     bool isQualifiedTrajectory(vector<PclPoint> &trajectory);
     bool insertNewTrajectory(vector<PclPoint> &pt_container);
     
 	void setColorMode(TrajectoryColorMode color_mode);
     void toggleRenderMode() { render_mode_ = !render_mode_;}
+    void setShowDirection(bool  val) { show_direction_ = val; }
     
     void selectNearLocation(float x, float y, float max_distance = 25.0f);
     
@@ -67,6 +68,24 @@ public:
     void computeWeightAtScale(int neighborhood_size);
     
     // Compute segments around each GPS point
+    void DBSCAN(double eps, int minPts);
+    void DBSCANExpandCluster(int pt_idx, vector<int> &neighborhood, vector<int> &cluster, double eps, int minPts, set<int> &unvisited_pts, vector<int> &assigned_cluster, int current_cluster_id);
+    void DBSCANRegionQuery(PclPoint &p, double eps, vector<int> &neighborhood);
+    int DBSCANNumClusters() { return point_clusters_.size(); }
+    void sampleDBSCANClusters(float neighborhood_size);
+    vector<vector<int>> &dbscanClusterSamples() { return cluster_samples_; }
+    void selectDBSCANClusterAt(int clusterId);
+    void showAllDBSCANClusters();
+    void cutTraj();
+    void mergePathlet();
+    void findNearbyPathlets(int segment_idx, set<int> &nearby_pathlet_idxs);
+    void expandPathletCluster(int starting_segment_idx, float distance_threshold, vector<int> &result);
+    float computeHausdorffDistance(int seg1_idx, int seg2_idx);
+    float onewayHausdorffDistance(int from_idx, int to_idx);
+    void douglasPeucker(int start_idx, int end_idx, float epsilon, Segment &seg, vector<int> &results);
+    
+    void peakDetector(vector<float> &values, int smooth_factor, int window_size, float ratio, vector<int> &detected_peaks);
+    
     void computeSegments(float extension);
     void setShowSegments(bool val) {show_segments_ = val;}
     void selectSegmentsWithSearchRange(float range);
@@ -81,6 +100,8 @@ public:
     int fpsSegmentSampling(int sample_id, double sigma, int minClusterSize, vector<vector<int>> &clusters);
     int fpsMultiSiteSegmentClustering(vector<int> selected_samples, double sigma, int minClusterSize, vector<vector<int>> &clusters);
     void showClusterAtIdx(int idx);
+    void exportSampleSegments(const string &filename);
+    void extractSampleFeatures(const string &filename);
     
     cv::Mat* descriptors() { return cluster_descriptors_;}
     vector<int> &cluster_popularity() { return cluster_popularity_; }
@@ -115,7 +136,9 @@ protected:
 private:
 	PclPointCloud::Ptr                data_;
 	PclSearchTree::Ptr                tree_;
-	vector<vector<int> >			trajectories_;
+	vector<vector<int> >              trajectories_;
+    vector<vector<int>>               point_clusters_;
+    vector<int>                       selected_cluster_idxs_;
     
     // Graph
     Graph                           *graph_;
@@ -140,6 +163,7 @@ private:
     set<int>                        picked_sample_idxs_;
     vector<float>                   sample_weight_;
     vector<vector<int>>             clusters_; // Only used for debugging
+    vector<vector<int>>             cluster_samples_;
     
         // Below 3 elements are used for segment cluster descriptor
     PclPointCloud::Ptr              cluster_centers_;
@@ -153,7 +177,16 @@ private:
     bool                            show_segments_;
     float                           search_range_;
     vector<Segment>                 segments_;
+    vector<Segment>                 simplified_segments_;
+    vector<vector<int>>             segment_id_lookup_;
     vector<vector<int>>             graph_interpolated_segments_;
+    
+    // Pathlets
+    vector<vector<int>>             pathlets_;
+    vector<float>                   pathlet_scores_;
+    map<int, set<int>>              traj_pathlets_;
+    map<int, set<int>>              pathlet_trajs_;
+    vector<map<int, pair<int, int>>>  pathlet_explained_;
     
     vector<int>                     segments_to_draw_;
     vector<int>                     segments_to_draw_for_samples_;
@@ -162,6 +195,9 @@ private:
         // Segment OpenGL
     vector<Vertex>                  segment_vertices_;
     vector<Color>                   segment_colors_;
+    vector<Vertex>                  segment_speed_;
+    vector<Color>                   segment_speed_colors_;
+    vector<int>                     segment_speed_indices_;
     vector<vector<int>>             segment_idxs_;
     
     // Below are for trajectory display
@@ -181,6 +217,7 @@ private:
 	TrajectoryColorMode             color_mode_;
     bool                            render_mode_;
     bool                            selection_mode_;
+    bool                            show_direction_;
 };
 
 #endif // TRAJECTORIES_H_

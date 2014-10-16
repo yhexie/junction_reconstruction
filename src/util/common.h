@@ -13,7 +13,7 @@ typedef RichPoint                       PclPoint;
 typedef pcl::PointCloud<PclPoint>       PclPointCloud;
 typedef pcl::search::Search<PclPoint>   PclSearchTree;
 
-static const float POSITIVE_INFINITY = 1e6;
+static const double POSITIVE_INFINITY = 1e6;
 
 // Visualization Z values
     // Traj

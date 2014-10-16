@@ -11,6 +11,7 @@
 #include <QTreeView>
 #include "scene_widget.h"
 #include "main_window.h"
+#include "latlon_converter.h"
 #include <QDebug>
 
 TrajListModel::TrajListModel(QObject *parent) : QAbstractListModel(parent){
@@ -162,11 +163,21 @@ void MainWindow::init(void)
     connect(this, SIGNAL(trajNumberChanged(int)), trajListModel, SLOT(setNumTraj(int)));
     connect(ui_->trajListView->selectionModel(), SIGNAL(selectionChanged(QItemSelection, QItemSelection)), this, SLOT(slotTrajSelectionChanged()));
     connect(ui_->actionComputeDistanceGraph, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotComputeDistanceGraph()));
+    connect(ui_->showDirection, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotSetShowDirection(int)));
+    connect(ui_->actionDBSCAN, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotDBSCAN()));
+    connect(ui_->actionSampleDBSCANClusters, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotSampleDBSCANClusters()));
+    connect(ui_->selectedClusterId, SIGNAL(valueChanged(int)), ui_->scene_widget, SLOT(slotSelectClusterAt(int)));
+    connect(ui_->showAllClusters, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotShowAllClusters()));
+    connect(ui_->scene_widget, SIGNAL(nDBSCANClusterComputed(int &)), this, SLOT(slotSetNDBSCANClusters(int &)));
+    connect(ui_->utmZoneSelector, SIGNAL(currentIndexChanged(int)), this, SLOT(slotSetUTMZone(int)));
+    connect(ui_->cutTraj, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotCutTraj()));
+    connect(ui_->mergePathlet, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotMergePathlet()));
     
     // Map View
     connect(ui_->showMapCheckBox, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotSetShowMap(int)));
     connect(this, SIGNAL(newOsmFileSelected(const QString &)), ui_->scene_widget, SLOT(slotOpenOsmMapFromFile(const QString &)));
     connect(ui_->scene_widget, SIGNAL(osmFileLoaded(QString &)), this, SLOT(slotOsmFileLoaded(QString &)));
+    connect(ui_->exportBranchingPoints, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotExtractMapBranchingPoints()));
     
     // Sample View
     connect(ui_->showSampleCheckBox, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotSetShowSamples(int)));
@@ -176,6 +187,8 @@ void MainWindow::init(void)
     connect(ui_->scene_widget, SIGNAL(nClusterComputed(int &)), this, SLOT(slotSetNClusters(int &)));
     connect(ui_->showClusterId, SIGNAL(valueChanged(int)), ui_->scene_widget, SLOT(slotPickClusterAtIdx(int)));
     connect(ui_->actionClusterSampleSegments, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotClusterSegmentsAtAllSamples()));
+    connect(ui_->exportSampleSegments, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotExportSampleSegments()));
+    connect(ui_->extractFeatures, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotExtractSampleFeatures()));
     
     // Segment View
     connect(ui_->showSegmentCheckBox, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotSetShowSegments(int)));
@@ -267,6 +280,25 @@ void MainWindow::slotSetNClusters(int &n_cluster){
     }
     else{
         ui_->showClusterId->setValue(0);
+    }
+}
+
+void MainWindow::slotSetNDBSCANClusters(int &n_dbscan_cluster){
+    if (n_dbscan_cluster > 0) {
+        ui_->selectedClusterId->setMaximum(n_dbscan_cluster);
+    }
+    else{
+        ui_->selectedClusterId->setValue(0);
+    }
+}
+
+void MainWindow::slotSetUTMZone(int index){
+    Projector &projector = Projector::getInstance();
+    if (index == 0) {
+        projector.setUTMZone(Projector::BEIJING);
+    }
+    else{
+        projector.setUTMZone(Projector::SAN_FRANCISCO);
     }
 }
 

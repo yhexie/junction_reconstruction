@@ -2,6 +2,7 @@
 #include <ctime>
 #include <Eigen/Dense>
 #include <algorithm>
+#include <pcl/search/impl/flann_search.hpp>
 using namespace Eigen;
 
 static const float arrow_size = 5.0f;   // in meters
@@ -266,10 +267,10 @@ void Graph::updateGraphUsingDescriptor(PclPointCloud::Ptr &cluster_centers, PclS
     typedef graph_t::vertex_descriptor vertex;
     typedef graph_t::edge_descriptor edge_descriptor;
     WeightMap weightmap = get(edge_weight, *g_);
-    float SEARCH_RANGE = 30.0f; // in meters
-    float MIN_DISTANCE_SQUARE = 225.0f; // in meters^2
-    float MIN_DISTANCE_SQUARE_FOR_EDGE = 225.0f; // in meters^2
-    int K = 2;
+    float SEARCH_RANGE = 50.0f; // in meters
+    float MIN_DISTANCE_SQUARE = 2500.0f; // in meters^2
+    float MIN_DISTANCE_SQUARE_FOR_EDGE = 2000.0f; // in meters^2
+    int K = 3;
     for (size_t sample_idx = 0; sample_idx < cluster_centers->size(); ++sample_idx) {
         vector<int> k_indices;
         vector<float> k_distances;
@@ -285,48 +286,56 @@ void Graph::updateGraphUsingDescriptor(PclPointCloud::Ptr &cluster_centers, PclS
                 // Add edge
                 if(k_distances[neighbor_idx] > 0.1){
                     int to_idx = k_indices[neighbor_idx];
+                    edge_descriptor e;
+                    bool inserted;
+                    tie(e, inserted) = add_edge(sample_idx, to_idx, *g_);
+                    float edge_weight = sqrt(k_distances[neighbor_idx]);
+                    weightmap[e] = edge_weight;
+                    edge_idxs_.push_back(sample_idx);
+                    edge_idxs_.push_back(to_idx);
+                    continue;
                     // Check edge compatibility with the descriptor
-                    float delta_x = cluster_centers->at(to_idx).x - cluster_centers->at(sample_idx).x;
-                    float delta_y = cluster_centers->at(to_idx).y - cluster_centers->at(sample_idx).y;
-                    float r = sqrt(delta_x*delta_x + delta_y*delta_y);
-                    float cos_value = delta_x / r;
-                    float theta = acos(cos_value) * 180.0f / PI;
-                    if (delta_y < 0) {
-                        theta += 180;
-                    }
-                    int theta_bin_id;
-                    if (theta > 45.0f && theta <= 135.0f) {
-                        theta_bin_id = 1;
-                    }
-                    else if (theta > 135.0f && theta <= 225.0f){
-                        theta_bin_id = 2;
-                    }
-                    else if (theta > 225.0f && theta <= 315.0f){
-                        theta_bin_id = 3;
-                    }
-                    else{
-                        theta_bin_id = 0;
-                    }
-                    
-                    int bin_1_id = theta_bin_id + 8;
-                    int bin_2_id = theta_bin_id + 4 + 8;
-                    bool is_compatible = false;
-                    if (d1.at<float>(0, bin_1_id) > 1e-3) {
-                        is_compatible = true;
-                    }
-                    if (d1.at<float>(0, bin_2_id) > 1e-3) {
-                        is_compatible = true;
-                    }
-                
-                    if (is_compatible) {
-                        edge_descriptor e;
-                        bool inserted;
-                        tie(e, inserted) = add_edge(sample_idx, to_idx, *g_);
-                        float edge_weight = sqrt(k_distances[neighbor_idx]);
-                        weightmap[e] = edge_weight;
-                        edge_idxs_.push_back(sample_idx);
-                        edge_idxs_.push_back(to_idx);
-                    }
+//                    float delta_x = cluster_centers->at(to_idx).x - cluster_centers->at(sample_idx).x;
+//                    float delta_y = cluster_centers->at(to_idx).y - cluster_centers->at(sample_idx).y;
+//                    float r = sqrt(delta_x*delta_x + delta_y*delta_y);
+//                    float cos_value = delta_x / r;
+//                    float theta = acos(cos_value) * 180.0f / PI;
+//                    if (delta_y < 0) {
+//                        theta += 180;
+//                    }
+//                    int theta_bin_id;
+//                    if (theta > 45.0f && theta <= 135.0f) {
+//                        theta_bin_id = 1;
+//                    }
+//                    else if (theta > 135.0f && theta <= 225.0f){
+//                        theta_bin_id = 2;
+//                    }
+//                    else if (theta > 225.0f && theta <= 315.0f){
+//                        theta_bin_id = 3;
+//                    }
+//                    else{
+//                        theta_bin_id = 0;
+//                    }
+//                    
+//                    int bin_1_id = theta_bin_id + 8;
+//                    int bin_2_id = theta_bin_id + 4 + 8;
+//                    bool is_compatible = false;
+//                    if (d1.at<float>(0, bin_1_id) > 1e-3) {
+//                        is_compatible = true;
+//                    }
+//                    if (d1.at<float>(0, bin_2_id) > 1e-3) {
+//                        is_compatible = true;
+//                    }
+//                
+//                    if (is_compatible) {
+//                        edge_descriptor e;
+//                        bool inserted;
+//                        tie(e, inserted) = add_edge(sample_idx, to_idx, *g_);
+//                        float edge_weight = sqrt(k_distances[neighbor_idx]);
+//                        weightmap[e] = edge_weight;
+//                        edge_idxs_.push_back(sample_idx);
+//                        edge_idxs_.push_back(to_idx);
+//                    }
                 }
                 continue;
             }
@@ -454,66 +463,191 @@ void Graph::updateGraphUsingSamplesAndGpsPointCloud(PclPointCloud::Ptr &samples,
         
         for (size_t neighbor_idx = 0; neighbor_idx < k_indices.size(); ++neighbor_idx) {
             size_t to_idx = static_cast<size_t>(k_indices[neighbor_idx]);
-            if (to_idx <= sample_idx) {
-                continue;
-            }
             
+            // Interpolate the vector from sample_idx to to_idx by about 5 meters, then search for all original GPS points falls in the box of width 5m.
             Vector2d v(vertices_->at(to_idx).x - vertices_->at(sample_idx).x,
                        vertices_->at(to_idx).y - vertices_->at(sample_idx).y);
             float edge_length = v.norm();
+            if (edge_length < 1.0f) {
+                continue;
+            }
+            float search_r = 2.5; // in meters
+            int n_search_sites = ceil(edge_length / search_r);
+            float delta_length = edge_length / n_search_sites;
             v.normalize();
             
-            vector<int> nearby_pt_idxs;
-            vector<float> nearby_pt_dists;
+            set<int> nearby_pt_idxs;
             
-            gps_pointcloud_search_tree_->radiusSearch(samples->at(sample_idx), edge_length, nearby_pt_idxs, nearby_pt_dists);
-            
-            int n_knots = static_cast<int>(edge_length);
-            vector<float> density(n_knots, 0.0f);
-            for (size_t i = 0; i < nearby_pt_idxs.size(); ++i) {
-                int pt_idx = nearby_pt_idxs[i];
-                Vector2d v1(gps_pointcloud_->at(pt_idx).x - vertices_->at(sample_idx).x,
-                            gps_pointcloud_->at(pt_idx).y - vertices_->at(sample_idx).y);
-                float v1_length = v1.norm();
-                float dot_value = v1.dot(v);
+            PclPoint pt;
+            for(int ith_search = 0; ith_search < n_search_sites+1; ++ith_search){
+                float delta_x = ith_search * delta_length * v.x();
+                float delta_y = ith_search * delta_length * v.y();
                 
-                float v_dist = sqrt(v1_length*v1_length - dot_value*dot_value);
-                if (v_dist > 3.0f) {
+                pt.setCoordinate(vertices_->at(sample_idx).x+delta_x, vertices_->at(sample_idx).y+delta_y, 0.0f);
+                
+                vector<int> pt_idxs;
+                vector<float> pt_dists;
+                gps_pointcloud_search_tree_->radiusSearch(pt, 1.4*search_r, pt_idxs, pt_dists);
+                for (size_t i = 0; i < pt_idxs.size(); ++i) {
+                    nearby_pt_idxs.insert(pt_idxs[i]);
+                }
+            }
+           
+            // Compute point vector support for adding the edge
+            float cumm_support = 1e-6;
+            for (set<int>::iterator it = nearby_pt_idxs.begin(); it != nearby_pt_idxs.end(); ++it) {
+                int pt_idx = *it;
+                if (gps_pointcloud_->at(pt_idx).speed < 1) {
                     continue;
                 }
-                
-                if (dot_value >= 0 && dot_value <= edge_length) {
-                    for (int j = 0; j < n_knots; ++j) {
-                        float delta = dot_value - j;
-                        density[j] += exp(-1*delta*delta/2.0f);
-                    }
+                float angle = static_cast<float>(360 - gps_pointcloud_->at(pt_idx).head + 90) * PI / 180.0f;
+                float head_x = cos(angle);
+                float head_y = sin(angle);
+                Vector2d heading(head_x, head_y);
+                float dot_value = heading.dot(v);
+                if (dot_value < 0.9f) {
+                    continue;
                 }
+                cumm_support += dot_value;
             }
+            //printf("cumm_support is %.2f\n", cumm_support);
             
-            float pt_density = 1e6;
-            for (int i = 0; i < n_knots; ++i) {
-                if (pt_density > density[i]) {
-                    pt_density = density[i];
-                }
-            }
-            
-            if (to_idx > sample_idx && pt_density > 1e-3) {
+            if (cumm_support > 2.0f) {
                 edge_descriptor e1;
                 bool inserted1;
                 tie(e1, inserted1) = add_edge(sample_idx, to_idx, *g_);
-                float edge_weight = sqrt(k_distances[neighbor_idx]) + 20.0 /pt_density;
+                float edge_weight = edge_length / cumm_support;
                 weightmap[e1] = edge_weight;
                 edge_idxs_.push_back(sample_idx);
                 edge_idxs_.push_back(to_idx);
-                edge_descriptor e2;
-                bool inserted2;
-                tie(e2, inserted2) = add_edge(to_idx, sample_idx, *g_);
-                weightmap[e2] = edge_weight;
-                edge_idxs_.push_back(to_idx);
-                edge_idxs_.push_back(sample_idx);
             }
         }
     }
+}
+
+void Graph::updateGraphUsingDBSCANClustersAndSamples(PclPointCloud::Ptr &samples, PclSearchTree::Ptr &sample_search_tree, PclPointCloud::Ptr &gps_pointcloud, PclSearchTree::Ptr &gps_pointcloud_search_tree, vector<vector<int>> &clusterSamples){
+    // Reset point clouds
+    vertices_ = samples;
+    tree_ = sample_search_tree;
+    
+    gps_pointcloud_ = gps_pointcloud;
+    gps_pointcloud_search_tree_ = gps_pointcloud_search_tree;
+    
+    edge_idxs_.clear();
+    int num_nodes = samples->size();
+    g_ = new graph_t(num_nodes);
+    locations_.clear();
+    locations_.resize(num_nodes);
+    for (size_t pt_idx = 0; pt_idx < samples->size(); ++pt_idx) {
+        PclPoint &pt = samples->at(pt_idx);
+        locations_[pt_idx].x = pt.x;
+        locations_[pt_idx].y = pt.y;
+    }
+    
+    typedef graph_t::vertex_descriptor vertex;
+    typedef graph_t::edge_descriptor edge_descriptor;
+    WeightMap weightmap = get(edge_weight, *g_);
+   
+    PclPointCloud::Ptr cluster_samples(new PclPointCloud);
+    PclSearchTree::Ptr cluster_sample_search_tree(new pcl::search::FlannSearch<PclPoint>(false));
+    
+    // Add intra-cluster edges
+    for (size_t i = 0; i < clusterSamples.size(); ++i) {
+        vector<int> &sample_idxs = clusterSamples[i];
+        cluster_samples->clear();
+        for (size_t j = 0; j < sample_idxs.size(); ++j) {
+            cluster_samples->push_back(samples->at(sample_idxs[j]));
+        }
+        cluster_sample_search_tree->setInputCloud(cluster_samples);
+        
+        // Add edges for each cluster within each cluster
+        for (size_t j = 0; j < sample_idxs.size(); ++j) {
+            int sample_idx = sample_idxs[j];
+            // Search its neighbors
+            vector<int> k_indices;
+            vector<float> k_distances;
+            int K = 5;
+            if (sample_idxs.size() < K){
+                K = sample_idxs.size();
+            }
+            cluster_sample_search_tree->radiusSearch(cluster_samples->at(j), 15.0, k_indices, k_distances);
+            double angle = static_cast<double>(450 - cluster_samples->at(j).head) * PI / 180.0f;
+            Vector2d starting_dir(cos(angle), sin(angle));
+            for (size_t k = 1; k < k_indices.size(); ++k) {
+                int k_idx = k_indices[k];
+                int to_idx = sample_idxs[k_idx];
+                Vector2d vec(cluster_samples->at(k_idx).x - cluster_samples->at(j).x,
+                             cluster_samples->at(k_idx).y - cluster_samples->at(j).y);
+                float edge_length = vec.norm();
+                vec.normalize();
+                float dot_value = vec.dot(starting_dir);
+                if (dot_value > 0.7) {
+                    // Add directional edge
+                    edge_descriptor e1;
+                    bool inserted1;
+                    tie(e1, inserted1) = add_edge(sample_idx, to_idx, *g_);
+                    float edge_weight = edge_length;
+                    weightmap[e1] = edge_weight;
+                    edge_idxs_.push_back(sample_idx);
+                    edge_idxs_.push_back(to_idx);
+                }
+            }
+        }
+    }
+    
+    // Add inter-cluster edges
+    int count = 0;
+    for (size_t i = 0; i < vertices_->size(); ++i) {
+        vector<int> nearby_sample_idxs;
+        vector<float> nearby_sample_dist_square;
+        int my_cluster_id = vertices_->at(i).id_sample;
+        int my_heading = vertices_->at(i).head;
+        float my_speed = static_cast<float>(vertices_->at(i).speed) / 100.0;
+        double my_angle = static_cast<double>(450 - my_heading) * PI / 180.0f;
+        Vector2d my_dir(cos(my_angle), sin(my_angle));
+        tree_->nearestKSearch(vertices_->at(i), 40, nearby_sample_idxs, nearby_sample_dist_square);
+        for (size_t j = 0; j < nearby_sample_idxs.size(); ++j) {
+            int to_sample_idx = nearby_sample_idxs[j];
+            int to_cluster_id = vertices_->at(to_sample_idx).id_sample;
+            int to_heading = vertices_->at(to_sample_idx).head;
+            float to_speed = static_cast<float>(vertices_->at(to_sample_idx).speed) / 100.0f;
+            double to_angle = static_cast<double>(450 - to_heading) * PI / 180.0f;
+            Vector2d to_dir(cos(to_angle), sin(to_angle));
+            Vector2d edge_dir(vertices_->at(to_sample_idx).x - vertices_->at(i).x,
+                              vertices_->at(to_sample_idx).y - vertices_->at(i).y);
+            
+            float edge_length = edge_dir.norm();
+            if (edge_length < 1e-6) {
+                continue;
+            }
+            edge_dir.normalize();
+           
+            float dot_value1 = edge_dir.dot(my_dir);
+            float dot_value2 = edge_dir.dot(to_dir);
+            
+            if (to_cluster_id == my_cluster_id) {
+                continue;
+            }
+            
+            float threshold1 = 0.6 + 0.4*my_speed/20.0;
+            float threshold2 = 0.6 + 0.4*to_speed/20.0;
+            
+            // Check compatibility of adding an edge
+            if (dot_value1 > threshold1 && dot_value2 > threshold2) {
+                // Add edge
+                // Add directional edge
+                count += 1;
+                edge_descriptor e;
+                bool inserted;
+                tie(e, inserted) = add_edge(i, to_sample_idx, *g_);
+                float edge_weight = (edge_length+0.1)*10;
+                weightmap[e] = edge_weight;
+                edge_idxs_.push_back(i);
+                edge_idxs_.push_back(to_sample_idx);
+            }
+        }
+    }
+    printf("Added %d inter cluster edge.\n", count);
 }
 
 void Graph::updateGraphUsingSamplesAndSegments(PclPointCloud::Ptr &samples, PclSearchTree::Ptr &sample_search_tree, vector<Segment> &segments, vector<vector<int>> &cluster_centers, vector<vector<int>> &cluster_sizes, PclPointCloud::Ptr &gps_pointcloud, PclSearchTree::Ptr &gps_pointcloud_search_tree){
@@ -759,14 +893,28 @@ void Graph::shortestPathInterpolation(vector<int> &query_path, vector<int> &resu
     vector<vector<int>> nearby_vertex_idxs(query_path.size());
     for(size_t idx = 0; idx < query_path.size(); ++idx){
         PclPoint &pt = gps_pointcloud_->at(query_path[idx]);
+        float my_angle = static_cast<float>(450 - pt.head) * PI / 180.0f;
+        Vector2d pt_dir(cos(my_angle), sin(my_angle));
         vector<int> k_indices;
         vector<float> k_sqr_distances;
-        tree_->nearestKSearch(pt, 10, k_indices, k_sqr_distances);
+        int K = 20;
+        tree_->nearestKSearch(pt, K, k_indices, k_sqr_distances);
         if (!k_indices.empty()) {
-            float min_distance_square = k_sqr_distances[0] + 0.1;
-            nearby_vertex_idxs[idx].push_back(k_indices[0]);
-            for (size_t i = 1; i < 10; ++i) {
+            float min_distance_square = POSITIVE_INFINITY;
+            for (size_t i = 0; i < K; ++i) {
+                int sample_idx = k_indices[i];
+            
+                float angle = static_cast<float>(450 - vertices_->at(sample_idx).head) * PI / 180.0f;
+                Vector2d sample_dir(cos(angle), sin(angle));
+               
+                if (sample_dir.dot(pt_dir) < 0.8) {
+                    continue;
+                }
+                
                 if (k_sqr_distances[i] < min_distance_square) {
+                    if (min_distance_square == POSITIVE_INFINITY) {
+                        min_distance_square = 1.5 * k_sqr_distances[i] + 0.1;
+                    }
                     nearby_vertex_idxs[idx].push_back(k_indices[i]);
                 }
                 else{
@@ -781,6 +929,12 @@ void Graph::shortestPathInterpolation(vector<int> &query_path, vector<int> &resu
     for (size_t idx = 0; idx < nearby_vertex_idxs.size() - 1; ++idx) {
         vector<int> &from_vertex_idxs = nearby_vertex_idxs[idx];
         vector<int> &to_vertex_idxs = nearby_vertex_idxs[idx+1];
+        if (from_vertex_idxs.size() == 0) {
+            continue;
+        }
+        if (to_vertex_idxs.size() == 0) {
+            continue;
+        }
         vector<int> path;
         bool found_path = false;
         for (size_t i = 0; i < from_vertex_idxs.size(); ++i) {
@@ -813,7 +967,8 @@ void Graph::shortestPathInterpolation(vector<int> &query_path, vector<int> &resu
             }
         }
     }
-    result_path.push_back(nearby_vertex_idxs.back()[0]);
+    if (nearby_vertex_idxs.back().size() > 0)
+        result_path.push_back(nearby_vertex_idxs.back()[0]);
 }
 
 // Simple segment distance

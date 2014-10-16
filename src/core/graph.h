@@ -38,6 +38,7 @@ public:
     int nEdges(void) {return edge_idxs_.size()/2;}
    
     void updateGraphUsingSamplesAndGpsPointCloud(PclPointCloud::Ptr &, PclSearchTree::Ptr &, PclPointCloud::Ptr &, PclSearchTree::Ptr &);
+    void updateGraphUsingDBSCANClustersAndSamples(PclPointCloud::Ptr &, PclSearchTree::Ptr &, PclPointCloud::Ptr &, PclSearchTree::Ptr &, vector<vector<int>> &clusterSamples);
     void updateGraphUsingSamplesAndSegments(PclPointCloud::Ptr &, PclSearchTree::Ptr &, vector<Segment> &, vector<vector<int>> &, vector<vector<int>> &, PclPointCloud::Ptr &, PclSearchTree::Ptr &);
     void updateGraphUsingDescriptor(PclPointCloud::Ptr &cluster_centers, PclSearchTree::Ptr &cluster_center_search_tree, cv::Mat *descriptors, vector<int> &cluster_popularity, PclPointCloud::Ptr &, PclSearchTree::Ptr &);
     

@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>1369</width>
-    <height>851</height>
+    <height>852</height>
    </rect>
   </property>
   <property name="focusPolicy">
@@ -101,18 +101,269 @@
            </widget>
           </item>
           <item>
-           <widget class="QCheckBox" name="checkBox">
-            <property name="font">
-             <font>
-              <pointsize>13</pointsize>
-             </font>
+           <widget class="QFrame" name="frame_5">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
             </property>
-            <property name="layoutDirection">
-             <enum>Qt::RightToLeft</enum>
+            <property name="minimumSize">
+             <size>
+              <width>0</width>
+              <height>30</height>
+             </size>
             </property>
-            <property name="text">
-             <string>Show interpolated</string>
+            <property name="frameShape">
+             <enum>QFrame::NoFrame</enum>
             </property>
+            <property name="frameShadow">
+             <enum>QFrame::Raised</enum>
+            </property>
+            <widget class="QComboBox" name="utmZoneSelector">
+             <property name="geometry">
+              <rect>
+               <x>129</x>
+               <y>2</y>
+               <width>181</width>
+               <height>26</height>
+              </rect>
+             </property>
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>120</width>
+               <height>0</height>
+              </size>
+             </property>
+             <item>
+              <property name="text">
+               <string>Beijing, UTM Zone 50</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>San Francisco, UTM Zone 10</string>
+              </property>
+             </item>
+            </widget>
+            <widget class="QCheckBox" name="showDirection">
+             <property name="geometry">
+              <rect>
+               <x>0</x>
+               <y>5</y>
+               <width>120</width>
+               <height>20</height>
+              </rect>
+             </property>
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="font">
+              <font>
+               <pointsize>13</pointsize>
+              </font>
+             </property>
+             <property name="text">
+              <string>Show Direction</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </widget>
+          </item>
+          <item>
+           <widget class="QFrame" name="frame_7">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="frameShape">
+             <enum>QFrame::NoFrame</enum>
+            </property>
+            <property name="frameShadow">
+             <enum>QFrame::Raised</enum>
+            </property>
+            <layout class="QHBoxLayout" name="horizontalLayout_6">
+             <property name="spacing">
+              <number>0</number>
+             </property>
+             <property name="leftMargin">
+              <number>0</number>
+             </property>
+             <property name="topMargin">
+              <number>0</number>
+             </property>
+             <property name="rightMargin">
+              <number>0</number>
+             </property>
+             <property name="bottomMargin">
+              <number>0</number>
+             </property>
+             <item>
+              <widget class="QLabel" name="label_4">
+               <property name="text">
+                <string>DBSCAN:</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="label_5">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="text">
+                <string>Eps</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QDoubleSpinBox" name="dbscanEps">
+               <property name="maximum">
+                <double>90.000000000000000</double>
+               </property>
+               <property name="singleStep">
+                <double>0.500000000000000</double>
+               </property>
+               <property name="value">
+                <double>5.000000000000000</double>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="label_6">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="text">
+                <string>MinPts</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QSpinBox" name="dbscanMinPts">
+               <property name="maximum">
+                <number>1000</number>
+               </property>
+               <property name="singleStep">
+                <number>10</number>
+               </property>
+               <property name="value">
+                <number>10</number>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item alignment="Qt::AlignVCenter">
+           <widget class="QFrame" name="frame_9">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>0</width>
+              <height>30</height>
+             </size>
+            </property>
+            <property name="frameShape">
+             <enum>QFrame::NoFrame</enum>
+            </property>
+            <property name="frameShadow">
+             <enum>QFrame::Raised</enum>
+            </property>
+            <widget class="QLabel" name="label_9">
+             <property name="geometry">
+              <rect>
+               <x>129</x>
+               <y>8</y>
+               <width>34</width>
+               <height>16</height>
+              </rect>
+             </property>
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Minimum" vsizetype="Preferred">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="text">
+              <string>Show</string>
+             </property>
+             <property name="textFormat">
+              <enum>Qt::PlainText</enum>
+             </property>
+            </widget>
+            <widget class="QSpinBox" name="selectedClusterId">
+             <property name="geometry">
+              <rect>
+               <x>165</x>
+               <y>4</y>
+               <width>61</width>
+               <height>24</height>
+              </rect>
+             </property>
+            </widget>
+            <widget class="QPushButton" name="showAllClusters">
+             <property name="geometry">
+              <rect>
+               <x>225</x>
+               <y>2</y>
+               <width>81</width>
+               <height>32</height>
+              </rect>
+             </property>
+             <property name="text">
+              <string>Show All</string>
+             </property>
+            </widget>
+            <widget class="QPushButton" name="cutTraj">
+             <property name="geometry">
+              <rect>
+               <x>0</x>
+               <y>1</y>
+               <width>51</width>
+               <height>32</height>
+              </rect>
+             </property>
+             <property name="text">
+              <string>Cut</string>
+             </property>
+            </widget>
+            <widget class="QPushButton" name="mergePathlet">
+             <property name="geometry">
+              <rect>
+               <x>60</x>
+               <y>1</y>
+               <width>61</width>
+               <height>32</height>
+              </rect>
+             </property>
+             <property name="text">
+              <string>Merge</string>
+             </property>
+            </widget>
            </widget>
           </item>
           <item>
@@ -158,21 +409,52 @@
            <number>0</number>
           </property>
           <item>
-           <widget class="QCheckBox" name="showMapCheckBox">
-            <property name="font">
-             <font>
-              <pointsize>13</pointsize>
-             </font>
+           <widget class="QFrame" name="frame_8">
+            <property name="frameShape">
+             <enum>QFrame::NoFrame</enum>
             </property>
-            <property name="layoutDirection">
-             <enum>Qt::RightToLeft</enum>
+            <property name="frameShadow">
+             <enum>QFrame::Raised</enum>
             </property>
-            <property name="text">
-             <string>Show Map</string>
-            </property>
-            <property name="checked">
-             <bool>true</bool>
-            </property>
+            <layout class="QHBoxLayout" name="horizontalLayout_7">
+             <property name="leftMargin">
+              <number>0</number>
+             </property>
+             <property name="topMargin">
+              <number>0</number>
+             </property>
+             <property name="rightMargin">
+              <number>0</number>
+             </property>
+             <property name="bottomMargin">
+              <number>0</number>
+             </property>
+             <item>
+              <widget class="QPushButton" name="exportBranchingPoints">
+               <property name="text">
+                <string>Export Branching Points</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QCheckBox" name="showMapCheckBox">
+               <property name="font">
+                <font>
+                 <pointsize>13</pointsize>
+                </font>
+               </property>
+               <property name="layoutDirection">
+                <enum>Qt::RightToLeft</enum>
+               </property>
+               <property name="text">
+                <string>Show Map</string>
+               </property>
+               <property name="checked">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+            </layout>
            </widget>
           </item>
           <item>
@@ -199,6 +481,12 @@
            <verstretch>0</verstretch>
           </sizepolicy>
          </property>
+         <property name="minimumSize">
+          <size>
+           <width>320</width>
+           <height>210</height>
+          </size>
+         </property>
          <property name="font">
           <font>
            <pointsize>14</pointsize>
@@ -207,277 +495,376 @@
          <property name="title">
           <string>Sample</string>
          </property>
-         <layout class="QVBoxLayout" name="verticalLayout_5">
-          <property name="leftMargin">
+         <widget class="QFrame" name="frame_6">
+          <property name="geometry">
+           <rect>
+            <x>3</x>
+            <y>25</y>
+            <width>311</width>
+            <height>32</height>
+           </rect>
+          </property>
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="minimumSize">
+           <size>
+            <width>0</width>
+            <height>25</height>
+           </size>
+          </property>
+          <property name="frameShape">
+           <enum>QFrame::NoFrame</enum>
+          </property>
+          <property name="frameShadow">
+           <enum>QFrame::Raised</enum>
+          </property>
+          <layout class="QHBoxLayout" name="horizontalLayout_5">
+           <property name="leftMargin">
+            <number>0</number>
+           </property>
+           <property name="topMargin">
+            <number>0</number>
+           </property>
+           <property name="rightMargin">
+            <number>0</number>
+           </property>
+           <property name="bottomMargin">
+            <number>0</number>
+           </property>
+           <item>
+            <widget class="QPushButton" name="exportSampleSegments">
+             <property name="text">
+              <string>Export Segments</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="showSampleCheckBox">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="font">
+              <font>
+               <pointsize>13</pointsize>
+              </font>
+             </property>
+             <property name="layoutDirection">
+              <enum>Qt::RightToLeft</enum>
+             </property>
+             <property name="text">
+              <string>Show Samples</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QLabel" name="sampleInfoLabel">
+          <property name="geometry">
+           <rect>
+            <x>3</x>
+            <y>90</y>
+            <width>212</width>
+            <height>20</height>
+           </rect>
+          </property>
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="minimumSize">
+           <size>
+            <width>0</width>
+            <height>20</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>No samples have been drawn yet.</string>
+          </property>
+         </widget>
+         <widget class="QFrame" name="frame">
+          <property name="geometry">
+           <rect>
+            <x>70</x>
+            <y>180</y>
+            <width>191</width>
+            <height>25</height>
+           </rect>
+          </property>
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="minimumSize">
+           <size>
+            <width>0</width>
+            <height>25</height>
+           </size>
+          </property>
+          <property name="frameShape">
+           <enum>QFrame::NoFrame</enum>
+          </property>
+          <property name="frameShadow">
+           <enum>QFrame::Plain</enum>
+          </property>
+          <property name="lineWidth">
            <number>0</number>
           </property>
-          <property name="rightMargin">
+          <layout class="QHBoxLayout" name="horizontalLayout_2">
+           <property name="leftMargin">
+            <number>0</number>
+           </property>
+           <property name="topMargin">
+            <number>0</number>
+           </property>
+           <property name="bottomMargin">
+            <number>0</number>
+           </property>
+           <item>
+            <widget class="QLabel" name="label_2">
+             <property name="text">
+              <string>Search range:</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QDoubleSpinBox" name="sampleCoverDistanceSpinBox">
+             <property name="suffix">
+              <string>m</string>
+             </property>
+             <property name="decimals">
+              <number>1</number>
+             </property>
+             <property name="singleStep">
+              <double>5.000000000000000</double>
+             </property>
+             <property name="value">
+              <double>10.000000000000000</double>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QFrame" name="frame_10">
+          <property name="geometry">
+           <rect>
+            <x>80</x>
+            <y>60</y>
+            <width>144</width>
+            <height>32</height>
+           </rect>
+          </property>
+          <property name="frameShape">
+           <enum>QFrame::NoFrame</enum>
+          </property>
+          <property name="frameShadow">
+           <enum>QFrame::Raised</enum>
+          </property>
+          <layout class="QHBoxLayout" name="horizontalLayout_4">
+           <property name="spacing">
+            <number>0</number>
+           </property>
+           <property name="leftMargin">
+            <number>0</number>
+           </property>
+           <property name="topMargin">
+            <number>0</number>
+           </property>
+           <property name="rightMargin">
+            <number>0</number>
+           </property>
+           <property name="bottomMargin">
+            <number>0</number>
+           </property>
+           <item>
+            <widget class="QPushButton" name="extractFeatures">
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>25</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>Extract Features</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QFrame" name="frame_4">
+          <property name="geometry">
+           <rect>
+            <x>6</x>
+            <y>110</y>
+            <width>310</width>
+            <height>64</height>
+           </rect>
+          </property>
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="minimumSize">
+           <size>
+            <width>310</width>
+            <height>64</height>
+           </size>
+          </property>
+          <property name="frameShape">
+           <enum>QFrame::NoFrame</enum>
+          </property>
+          <property name="frameShadow">
+           <enum>QFrame::Raised</enum>
+          </property>
+          <property name="lineWidth">
            <number>0</number>
           </property>
-          <property name="bottomMargin">
-           <number>0</number>
-          </property>
-          <item>
-           <widget class="QCheckBox" name="showSampleCheckBox">
-            <property name="font">
-             <font>
-              <pointsize>13</pointsize>
-             </font>
-            </property>
-            <property name="layoutDirection">
-             <enum>Qt::RightToLeft</enum>
-            </property>
-            <property name="text">
-             <string>Show Samples</string>
-            </property>
-            <property name="checked">
-             <bool>true</bool>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QLabel" name="sampleInfoLabel">
-            <property name="text">
-             <string>No samples have been drawn yet.</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QFrame" name="frame_3">
-            <property name="sizePolicy">
-             <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
-              <horstretch>0</horstretch>
-              <verstretch>0</verstretch>
-             </sizepolicy>
-            </property>
-            <property name="layoutDirection">
-             <enum>Qt::LeftToRight</enum>
-            </property>
-            <property name="frameShape">
-             <enum>QFrame::NoFrame</enum>
-            </property>
-            <property name="frameShadow">
-             <enum>QFrame::Raised</enum>
-            </property>
-            <layout class="QVBoxLayout" name="verticalLayout_7">
-             <property name="leftMargin">
-              <number>0</number>
-             </property>
-             <property name="topMargin">
-              <number>0</number>
-             </property>
-             <property name="rightMargin">
-              <number>0</number>
-             </property>
-             <property name="bottomMargin">
-              <number>0</number>
-             </property>
-             <item>
-              <widget class="QFrame" name="frame_4">
-               <property name="sizePolicy">
-                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-                 <horstretch>0</horstretch>
-                 <verstretch>0</verstretch>
-                </sizepolicy>
-               </property>
-               <property name="minimumSize">
-                <size>
-                 <width>310</width>
-                 <height>64</height>
-                </size>
-               </property>
-               <property name="frameShape">
-                <enum>QFrame::NoFrame</enum>
-               </property>
-               <property name="frameShadow">
-                <enum>QFrame::Raised</enum>
-               </property>
-               <property name="lineWidth">
-                <number>0</number>
-               </property>
-               <widget class="QPushButton" name="clusterSegments">
-                <property name="enabled">
-                 <bool>true</bool>
-                </property>
-                <property name="geometry">
-                 <rect>
-                  <x>207</x>
-                  <y>37</y>
-                  <width>81</width>
-                  <height>20</height>
-                 </rect>
-                </property>
-                <property name="sizePolicy">
-                 <sizepolicy hsizetype="Minimum" vsizetype="Preferred">
-                  <horstretch>0</horstretch>
-                  <verstretch>0</verstretch>
-                 </sizepolicy>
-                </property>
-                <property name="text">
-                 <string>Cluster</string>
-                </property>
-               </widget>
-               <widget class="QDoubleSpinBox" name="sigmaValue">
-                <property name="geometry">
-                 <rect>
-                  <x>48</x>
-                  <y>6</y>
-                  <width>111</width>
-                  <height>24</height>
-                 </rect>
-                </property>
-                <property name="sizePolicy">
-                 <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
-                  <horstretch>0</horstretch>
-                  <verstretch>0</verstretch>
-                 </sizepolicy>
-                </property>
-                <property name="minimumSize">
-                 <size>
-                  <width>0</width>
-                  <height>0</height>
-                 </size>
-                </property>
-                <property name="suffix">
-                 <string>m/s</string>
-                </property>
-                <property name="minimum">
-                 <double>0.000000000000000</double>
-                </property>
-                <property name="maximum">
-                 <double>10.000000000000000</double>
-                </property>
-                <property name="singleStep">
-                 <double>0.050000000000000</double>
-                </property>
-                <property name="value">
-                 <double>0.200000000000000</double>
-                </property>
-               </widget>
-               <widget class="QLabel" name="label">
-                <property name="geometry">
-                 <rect>
-                  <x>8</x>
-                  <y>10</y>
-                  <width>43</width>
-                  <height>16</height>
-                 </rect>
-                </property>
-                <property name="text">
-                 <string>Sigma</string>
-                </property>
-               </widget>
-               <widget class="QLabel" name="label_7">
-                <property name="geometry">
-                 <rect>
-                  <x>8</x>
-                  <y>40</y>
-                  <width>111</width>
-                  <height>16</height>
-                 </rect>
-                </property>
-                <property name="text">
-                 <string>Min Cluster Size</string>
-                </property>
-               </widget>
-               <widget class="QSpinBox" name="minClusterSize">
-                <property name="geometry">
-                 <rect>
-                  <x>110</x>
-                  <y>35</y>
-                  <width>49</width>
-                  <height>24</height>
-                 </rect>
-                </property>
-                <property name="minimum">
-                 <number>1</number>
-                </property>
-                <property name="maximum">
-                 <number>20</number>
-                </property>
-                <property name="value">
-                 <number>5</number>
-                </property>
-               </widget>
-               <widget class="QLabel" name="label_8">
-                <property name="geometry">
-                 <rect>
-                  <x>170</x>
-                  <y>10</y>
-                  <width>81</width>
-                  <height>16</height>
-                 </rect>
-                </property>
-                <property name="text">
-                 <string>Show cluster</string>
-                </property>
-               </widget>
-               <widget class="QSpinBox" name="showClusterId">
-                <property name="geometry">
-                 <rect>
-                  <x>255</x>
-                  <y>6</y>
-                  <width>51</width>
-                  <height>24</height>
-                 </rect>
-                </property>
-                <property name="maximum">
-                 <number>10000000</number>
-                </property>
-               </widget>
-              </widget>
-             </item>
-            </layout>
-           </widget>
-          </item>
-          <item>
-           <widget class="QFrame" name="frame">
-            <property name="frameShape">
-             <enum>QFrame::NoFrame</enum>
-            </property>
-            <property name="frameShadow">
-             <enum>QFrame::Plain</enum>
-            </property>
-            <property name="lineWidth">
-             <number>0</number>
-            </property>
-            <layout class="QHBoxLayout" name="horizontalLayout_2">
-             <property name="leftMargin">
-              <number>0</number>
-             </property>
-             <property name="topMargin">
-              <number>0</number>
-             </property>
-             <property name="bottomMargin">
-              <number>0</number>
-             </property>
-             <item>
-              <widget class="QLabel" name="label_2">
-               <property name="text">
-                <string>Search range:</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QDoubleSpinBox" name="sampleCoverDistanceSpinBox">
-               <property name="suffix">
-                <string>m</string>
-               </property>
-               <property name="decimals">
-                <number>1</number>
-               </property>
-               <property name="singleStep">
-                <double>5.000000000000000</double>
-               </property>
-               <property name="value">
-                <double>10.000000000000000</double>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </widget>
-          </item>
-         </layout>
+          <widget class="QPushButton" name="clusterSegments">
+           <property name="enabled">
+            <bool>true</bool>
+           </property>
+           <property name="geometry">
+            <rect>
+             <x>207</x>
+             <y>37</y>
+             <width>81</width>
+             <height>20</height>
+            </rect>
+           </property>
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Minimum" vsizetype="Preferred">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="text">
+            <string>Cluster</string>
+           </property>
+          </widget>
+          <widget class="QDoubleSpinBox" name="sigmaValue">
+           <property name="geometry">
+            <rect>
+             <x>48</x>
+             <y>6</y>
+             <width>111</width>
+             <height>24</height>
+            </rect>
+           </property>
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>0</height>
+            </size>
+           </property>
+           <property name="suffix">
+            <string>m/s</string>
+           </property>
+           <property name="minimum">
+            <double>0.000000000000000</double>
+           </property>
+           <property name="maximum">
+            <double>10.000000000000000</double>
+           </property>
+           <property name="singleStep">
+            <double>0.050000000000000</double>
+           </property>
+           <property name="value">
+            <double>0.200000000000000</double>
+           </property>
+          </widget>
+          <widget class="QLabel" name="label">
+           <property name="geometry">
+            <rect>
+             <x>8</x>
+             <y>10</y>
+             <width>43</width>
+             <height>16</height>
+            </rect>
+           </property>
+           <property name="text">
+            <string>Sigma</string>
+           </property>
+          </widget>
+          <widget class="QLabel" name="label_7">
+           <property name="geometry">
+            <rect>
+             <x>8</x>
+             <y>40</y>
+             <width>111</width>
+             <height>16</height>
+            </rect>
+           </property>
+           <property name="text">
+            <string>Min Cluster Size</string>
+           </property>
+          </widget>
+          <widget class="QSpinBox" name="minClusterSize">
+           <property name="geometry">
+            <rect>
+             <x>110</x>
+             <y>35</y>
+             <width>49</width>
+             <height>24</height>
+            </rect>
+           </property>
+           <property name="minimum">
+            <number>1</number>
+           </property>
+           <property name="maximum">
+            <number>20</number>
+           </property>
+           <property name="value">
+            <number>5</number>
+           </property>
+          </widget>
+          <widget class="QLabel" name="label_8">
+           <property name="geometry">
+            <rect>
+             <x>170</x>
+             <y>10</y>
+             <width>81</width>
+             <height>16</height>
+            </rect>
+           </property>
+           <property name="text">
+            <string>Show cluster</string>
+           </property>
+          </widget>
+          <widget class="QSpinBox" name="showClusterId">
+           <property name="geometry">
+            <rect>
+             <x>255</x>
+             <y>6</y>
+             <width>51</width>
+             <height>24</height>
+            </rect>
+           </property>
+           <property name="maximum">
+            <number>10000000</number>
+           </property>
+          </widget>
+         </widget>
         </widget>
        </item>
        <item>
@@ -672,6 +1059,8 @@
      <string>Tools</string>
     </property>
     <addaction name="actionExtractTrajectory"/>
+    <addaction name="actionDBSCAN"/>
+    <addaction name="actionSampleDBSCANClusters"/>
     <addaction name="separator"/>
     <addaction name="actionComputeDistanceGraph"/>
     <addaction name="separator"/>
@@ -713,6 +1102,9 @@
    <attribute name="toolBarBreak">
     <bool>false</bool>
    </attribute>
+   <addaction name="separator"/>
+   <addaction name="actionDBSCAN"/>
+   <addaction name="actionSampleDBSCANClusters"/>
    <addaction name="separator"/>
    <addaction name="actionSamplePointCloud"/>
    <addaction name="actionPickSample"/>
@@ -828,6 +1220,16 @@
   <action name="actionComputeDistanceGraph">
    <property name="text">
     <string>Compute Distance Graph</string>
+   </property>
+  </action>
+  <action name="actionDBSCAN">
+   <property name="text">
+    <string>DBSCAN</string>
+   </property>
+  </action>
+  <action name="actionSampleDBSCANClusters">
+   <property name="text">
+    <string>Sample DB Clusters</string>
    </property>
   </action>
  </widget>
