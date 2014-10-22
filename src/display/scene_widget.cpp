@@ -741,6 +741,11 @@ void SceneWidget::slotMergePathlet(){
     updateGL();
 }
 
+void SceneWidget::slotSelectPathlet(){
+    trajectories_->selectPathlet();
+    updateGL();
+}
+
 //void SceneWidget::slotOpenOsmFile(QModelIndex index){
 //}
 

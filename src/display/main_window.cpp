@@ -167,11 +167,12 @@ void MainWindow::init(void)
     connect(ui_->actionDBSCAN, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotDBSCAN()));
     connect(ui_->actionSampleDBSCANClusters, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotSampleDBSCANClusters()));
     connect(ui_->selectedClusterId, SIGNAL(valueChanged(int)), ui_->scene_widget, SLOT(slotSelectClusterAt(int)));
-    connect(ui_->showAllClusters, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotShowAllClusters()));
+    //connect(ui_->showAllClusters, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotShowAllClusters()));
     connect(ui_->scene_widget, SIGNAL(nDBSCANClusterComputed(int &)), this, SLOT(slotSetNDBSCANClusters(int &)));
     connect(ui_->utmZoneSelector, SIGNAL(currentIndexChanged(int)), this, SLOT(slotSetUTMZone(int)));
     connect(ui_->cutTraj, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotCutTraj()));
     connect(ui_->mergePathlet, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotMergePathlet()));
+    connect(ui_->selectPathlet, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotSelectPathlet()));
     
     // Map View
     connect(ui_->showMapCheckBox, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotSetShowMap(int)));

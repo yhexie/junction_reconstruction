@@ -296,7 +296,7 @@
             <widget class="QLabel" name="label_9">
              <property name="geometry">
               <rect>
-               <x>129</x>
+               <x>218</x>
                <y>8</y>
                <width>34</width>
                <height>16</height>
@@ -318,24 +318,11 @@
             <widget class="QSpinBox" name="selectedClusterId">
              <property name="geometry">
               <rect>
-               <x>165</x>
+               <x>253</x>
                <y>4</y>
                <width>61</width>
                <height>24</height>
               </rect>
-             </property>
-            </widget>
-            <widget class="QPushButton" name="showAllClusters">
-             <property name="geometry">
-              <rect>
-               <x>225</x>
-               <y>2</y>
-               <width>81</width>
-               <height>32</height>
-              </rect>
-             </property>
-             <property name="text">
-              <string>Show All</string>
              </property>
             </widget>
             <widget class="QPushButton" name="cutTraj">
@@ -362,6 +349,19 @@
              </property>
              <property name="text">
               <string>Merge</string>
+             </property>
+            </widget>
+            <widget class="QPushButton" name="selectPathlet">
+             <property name="geometry">
+              <rect>
+               <x>130</x>
+               <y>1</y>
+               <width>71</width>
+               <height>32</height>
+              </rect>
+             </property>
+             <property name="text">
+              <string>Select</string>
              </property>
             </widget>
            </widget>

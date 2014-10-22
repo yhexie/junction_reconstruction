@@ -9,6 +9,7 @@
 #include "trajectories.h"
 #include <Eigen/Dense>
 #include <Eigen/Eigenvalues>
+#include <queue>
 #include "graph.h"
 #include "gps_trajectory.pb.h"
 #include <google/protobuf/io/coded_stream.h>
@@ -26,6 +27,19 @@ static const float arrow_size = 50.0f;   // in meters
 static const int arrow_angle = 15; // in degrees
 
 static const float SPEED_FILTER = 2.5; // meters per second
+
+struct QueueValue{
+    int index;
+    double dist;
+};
+
+class MyComparison{
+public:
+    MyComparison(){}
+    bool operator()(const QueueValue &lhs, const QueueValue& rhs) const{
+        return (lhs.dist > rhs.dist);
+    }
+};
 
 Trajectories::Trajectories(QObject *parent) : Renderable(parent), data_(new PclPointCloud), tree_(new pcl::search::FlannSearch<PclPoint>(false)), distance_graph_vertices_(new PclPointCloud), distance_graph_search_tree_(new pcl::search::FlannSearch<PclPoint>(false)), sample_point_size_(10.0f), sample_color_(Color(0.0f, 0.3f, 0.6f, 1.0f)),samples_(new PclPointCloud), sample_tree_(new pcl::search::FlannSearch<PclPoint>(false)), cluster_centers_(new PclPointCloud), cluster_center_search_tree_(new pcl::search::FlannSearch<PclPoint>(false))
 {
@@ -1998,12 +2012,12 @@ void Trajectories::mergePathlet(){
             vector<int> &current_traj = trajectories_[orig_traj_id];
             for (int s = 0; s < current_traj.size(); ++s) {
                 if (current_traj[s] == orig_start_idx_in_data) {
-                    corresponding_start = orig_start_idx_in_data;
+                    corresponding_start = s;
                 }
             }
             for (int s = 0; s < current_traj.size(); ++s) {
                 if (current_traj[s] == orig_end_idx_in_data) {
-                    corresponding_end = orig_end_idx_in_data;
+                    corresponding_end = s;
                 }
             }
             
@@ -2039,6 +2053,211 @@ void Trajectories::mergePathlet(){
     for (int i = 0; i < pathlets_.size(); ++i) {
         pathlet_scores_[i] = static_cast<float>(pathlet_trajs_[i].size());
     }
+    
+    // Debug
+    //for (int i = 0; i < trajectories_.size(); ++i){
+    //    printf("trajectory %d has %lu points\n", i, trajectories_[i].size());
+    //    map<int, set<int>>::iterator it = traj_pathlets_.find(i);
+    //    set<int> &this_pathlets = it->second;
+    //    for(set<int>::iterator tmp = this_pathlets.begin(); tmp != this_pathlets.end(); ++tmp){
+    //        int pathlet_id = *tmp;
+    //        map<int, pair<int, int>> &explained = pathlet_explained_[pathlet_id];
+    //    
+    //        map<int, pair<int, int>>::iterator fit = explained.find(i);
+    //        pair<int, int> &range = fit->second;
+    //    
+    //        printf("\tpathlet %d, weight = %.6f, covered %d to %d\n", pathlet_id, pathlet_scores_[pathlet_id], range.first, range.second);
+    //    }
+    //}
+}
+
+void Trajectories::selectPathlet(){
+    selected_pathlets_.clear();
+    if (pathlets_.size() == 0){
+        printf("Please generate segments and merge them first.\n");
+        return;
+    }
+    
+    // Build graph for each trajectory
+    vector<vector<vector<int>>>     G_edges;
+    vector<vector<vector<int>>>     G_edge_weight_idxs;
+    vector<float>                   pathlet_weights(pathlets_.size(), 0.0f);
+    
+    float LAMBDA = 0.0f;
+    for (int i = 0; i < trajectories_.size(); ++i) {
+        vector<int> &current_traj = trajectories_[i];
+        vector<vector<int>> edges(current_traj.size(), vector<int>());
+        vector<vector<int>> edge_weight_idxs(current_traj.size(), vector<int>());
+        
+        map<int, set<int>>::iterator it = traj_pathlets_.find(i);
+        if (it == traj_pathlets_.end()) {
+            printf("WARNING: cannot find trajectory pathlet list.\n");
+            continue;
+        }
+        set<int> &p_lists= it->second;
+        // Each pathlet of this trajectory corresponds to an edge
+        for (set<int>::iterator p_it = p_lists.begin(); p_it != p_lists.end(); ++p_it) {
+            int pathlet_id = *p_it;
+            map<int, pair<int, int>> &p_explained = pathlet_explained_[pathlet_id];
+            map<int, pair<int, int>>::iterator region_it = p_explained.find(i);
+            if (region_it == p_explained.end()) {
+                printf("ERROR! Cannot find the desired trajectory that this pathlet should be able to explain!\n");
+                exit(1);
+            }
+            pair<int, int> &region = region_it->second;
+            
+            edges[region.first].push_back(region.second);
+            edge_weight_idxs[region.first].push_back(pathlet_id);
+            pathlet_weights[pathlet_id] = LAMBDA + 1.0 / pathlet_scores_[pathlet_id];
+        }
+        G_edges.push_back(edges);
+        G_edge_weight_idxs.push_back(edge_weight_idxs);
+    }
+    
+    vector<int> pathlet_selected_count(pathlets_.size(), 0);
+    
+    for (int i = 0; i < trajectories_.size(); ++i) {
+        // For each trajectory, run shortest path
+        vector<int> chosen_pathlets;
+        shortestPathSelection(G_edges[i], G_edge_weight_idxs[i], pathlet_weights, chosen_pathlets);
+      
+        // Debug
+//        vector<int> &this_traj = trajectories_[i];
+//        printf("This trajectory:\n\t");
+//        for (int j = 0; j < this_traj.size(); ++j) {
+//            printf("%d,", this_traj[j]);
+//        }
+       
+        
+//        printf("\n");
+//        printf("Results:\n");
+        for (int s = chosen_pathlets.size() - 1; s>=0; --s) {
+            int pathlet_id = chosen_pathlets[s];
+            pathlet_selected_count[pathlet_id] += 1;
+            map<int, pair<int,int>> &explained = pathlet_explained_[pathlet_id];
+            map<int, pair<int,int>>::iterator it = explained.find(i);
+//            printf("\tpathlet %d, explained: %d to %d\n", pathlet_id, it->second.first, it->second.second);
+        }
+    }
+    
+    // Output results
+    int n_recorded_pathlets = 0;
+    for (int i = 0; i < pathlets_.size(); ++i) {
+        if (pathlet_selected_count[i] > 1) {
+            n_recorded_pathlets += 1;
+        }
+    }
+    
+    ofstream output;
+    output.open("test_selected_pathlets.txt");
+    output<< n_recorded_pathlets <<endl;
+    for (int i = 0; i < pathlets_.size(); ++i) {
+        if (pathlet_selected_count[i] <= 1) {
+            continue;
+        }
+        vector<int> &this_cluster = pathlets_[i];
+        output << this_cluster.size() << endl;
+        for (int j = 0; j < this_cluster.size(); ++j) {
+            Segment &this_seg = segments_[this_cluster[j]];
+            output << this_seg.points().size() << endl;
+            for (int k = 0; k < this_seg.points().size(); ++k) {
+                SegPoint &this_pt = this_seg.points()[k];
+                output << this_pt.x << ", " << this_pt.y << endl;
+            }
+        }
+    }
+    
+    output.close();
+}
+
+bool Trajectories::shortestPathSelection(vector<vector<int>> &edges, vector<vector<int>> &edge_weight_idxs, vector<float> &pathlet_weights, vector<int> &chosen_pathlets){
+    // Implement Dijkstra's Algorithm
+    chosen_pathlets.clear();
+    if (edges.size() == 0){
+        return true;
+    }
+   
+    //printf("Traj length %lu\n", edges.size());
+    //for (int i = 0; i < edges.size(); ++i) {
+    //    for (int j = 0; j < edges[i].size(); ++j) {
+    //        int to_vertex = edges[i][j];
+    //        int weight_idx = edge_weight_idxs[i][j];
+    //        printf("\t %d to %d, weight = %.6f\n", i, to_vertex, pathlet_weights[weight_idx]);
+    //    }
+    //}
+    
+    int n_node = edges.size();
+    vector<double> dist(n_node, 1e16);
+    vector<bool> visited(n_node, false);
+    dist[0] = 0.0f;
+    vector<QueueValue> element(n_node);
+    for (int i = 0; i < n_node; ++i) {
+        element[i].index = i;
+        element[i].dist = dist[i];
+    }
+    
+    
+    priority_queue<QueueValue, vector<QueueValue>, MyComparison> queue(element.begin(), element.end());
+    vector<int> previous(n_node, -1);
+    
+    while (!queue.empty()){
+        QueueValue u = queue.top();
+        if (u.index == n_node - 1) {
+            break;
+        }
+        
+        if (visited[u.index]) {
+            queue.pop();
+            continue;
+        }
+        
+        visited[u.index] = true;
+        
+        if (dist[u.index] > 1e15) {
+            return false;
+        }
+        
+        vector<int> &to_vertices = edges[u.index];
+        vector<int> &to_edge_weight_idx = edge_weight_idxs[u.index];
+        for (int i = 0; i < to_vertices.size(); ++i) {
+            int pathlet_id = to_edge_weight_idx[i];
+            int to_vertex_id = to_vertices[i];
+            float edge_weight = pathlet_weights[pathlet_id];
+            double alt = dist[u.index] + edge_weight;
+            if (alt < dist[to_vertex_id]) {
+                dist[to_vertex_id] = alt;
+                previous[to_vertex_id] = u.index;
+                QueueValue tmp;
+                tmp.index = to_vertex_id;
+                tmp.dist = alt;
+                queue.push(tmp);
+            }
+        }
+        queue.pop();
+    }
+    
+    // Trace the chosen pathlets
+    int u = n_node - 1;
+    while (previous[u] != -1){
+        int first_node = previous[u];
+        int selected_pathlet = -1;
+        vector<int> &this_edges = edges[first_node];
+        for (int i = 0; i < this_edges.size(); ++i) {
+            if (this_edges[i] == u) {
+                selected_pathlet = edge_weight_idxs[first_node][i];
+            }
+        }
+        
+        if (selected_pathlet == -1) {
+            printf("ERROR! Pathlet error!\n");
+            exit(1);
+        }
+        chosen_pathlets.push_back(selected_pathlet);
+        
+        u = first_node;
+    }
+    
+    return true;
 }
 
 void Trajectories::douglasPeucker(int start_idx, int end_idx, float epsilon, Segment &seg, vector<int> &results){

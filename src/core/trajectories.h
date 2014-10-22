@@ -78,10 +78,12 @@ public:
     void showAllDBSCANClusters();
     void cutTraj();
     void mergePathlet();
+    void selectPathlet();
     void findNearbyPathlets(int segment_idx, set<int> &nearby_pathlet_idxs);
     void expandPathletCluster(int starting_segment_idx, float distance_threshold, vector<int> &result);
     float computeHausdorffDistance(int seg1_idx, int seg2_idx);
     float onewayHausdorffDistance(int from_idx, int to_idx);
+    bool shortestPathSelection(vector<vector<int>> &edges, vector<vector<int>> &edge_weight_idxs, vector<float> &pathlet_weights, vector<int> &chosen_pathlets);
     void douglasPeucker(int start_idx, int end_idx, float epsilon, Segment &seg, vector<int> &results);
     
     void peakDetector(vector<float> &values, int smooth_factor, int window_size, float ratio, vector<int> &detected_peaks);
@@ -182,11 +184,12 @@ private:
     vector<vector<int>>             graph_interpolated_segments_;
     
     // Pathlets
-    vector<vector<int>>             pathlets_;
-    vector<float>                   pathlet_scores_;
+    vector<vector<int>>             pathlets_; // Each pathlet is a collection of segment indexes
+    vector<float>                   pathlet_scores_; // The score for each pathlet
     map<int, set<int>>              traj_pathlets_;
     map<int, set<int>>              pathlet_trajs_;
     vector<map<int, pair<int, int>>>  pathlet_explained_;
+    vector<int>                     selected_pathlets_;
     
     vector<int>                     segments_to_draw_;
     vector<int>                     segments_to_draw_for_samples_;

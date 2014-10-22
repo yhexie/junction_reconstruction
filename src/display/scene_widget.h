@@ -66,6 +66,7 @@ signals:
     void slotShowAllClusters();
     void slotCutTraj();
     void slotMergePathlet();
+    void slotSelectPathlet();
     
     // Map
     void slotOpenOsmMap(void);
