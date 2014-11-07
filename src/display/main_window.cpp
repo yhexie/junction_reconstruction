@@ -146,7 +146,6 @@ void MainWindow::init(void)
     // Algorithms
     
     // Visualization
-    
 	// Tools
     connect(ui_->actionExtractTrajectory, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotExtractTrajectories()));
     connect(ui_->actionSamplePointCloud, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotSamplePointCloud()));
@@ -166,13 +165,16 @@ void MainWindow::init(void)
     connect(ui_->showDirection, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotSetShowDirection(int)));
     connect(ui_->actionDBSCAN, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotDBSCAN()));
     connect(ui_->actionSampleDBSCANClusters, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotSampleDBSCANClusters()));
-    connect(ui_->selectedClusterId, SIGNAL(valueChanged(int)), ui_->scene_widget, SLOT(slotSelectClusterAt(int)));
-    //connect(ui_->showAllClusters, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotShowAllClusters()));
     connect(ui_->scene_widget, SIGNAL(nDBSCANClusterComputed(int &)), this, SLOT(slotSetNDBSCANClusters(int &)));
+ 
     connect(ui_->utmZoneSelector, SIGNAL(currentIndexChanged(int)), this, SLOT(slotSetUTMZone(int)));
     connect(ui_->cutTraj, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotCutTraj()));
     connect(ui_->mergePathlet, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotMergePathlet()));
     connect(ui_->selectPathlet, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotSelectPathlet()));
+    connect(ui_->scene_widget, SIGNAL(nPathletSelected(int &)), this, SLOT(slotSetNPathlets(int &)));
+    connect(ui_->pathletThreshold, SIGNAL(valueChanged(int)), ui_->scene_widget, SLOT(slotSetPathletThreshold(int)));
+    connect(ui_->showAllPathlets, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotShowAllPathlets()));
+    connect(ui_->selectedPathletId, SIGNAL(valueChanged(int)), ui_->scene_widget, SLOT(slotShowPathletAt(int)));
     
     // Map View
     connect(ui_->showMapCheckBox, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotSetShowMap(int)));
@@ -184,17 +186,15 @@ void MainWindow::init(void)
     connect(ui_->showSampleCheckBox, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotSetShowSamples(int)));
     connect(ui_->scene_widget, SIGNAL(newSamplesDrawn(QString &)), this, SLOT(slotNewSamplesDrawn(QString &)));
     connect(ui_->sampleCoverDistanceSpinBox, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotSampleCoverDistanceChange(double)));
-    connect(ui_->clusterSegments, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotClusterSegmentsAtSample()));
-    connect(ui_->scene_widget, SIGNAL(nClusterComputed(int &)), this, SLOT(slotSetNClusters(int &)));
-    connect(ui_->showClusterId, SIGNAL(valueChanged(int)), ui_->scene_widget, SLOT(slotPickClusterAtIdx(int)));
-    connect(ui_->actionClusterSampleSegments, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotClusterSegmentsAtAllSamples()));
-    connect(ui_->exportSampleSegments, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotExportSampleSegments()));
-    connect(ui_->extractFeatures, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotExtractSampleFeatures()));
+    connect(ui_->exportSamplePathlets, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotExportSamplePathlets()));
+    connect(ui_->scene_widget, SIGNAL(ithPathletToShowChanged(int &)), this, SLOT(slotSetIthPathletToShow(int &)));
     
-    // Segment View
-    connect(ui_->showSegmentCheckBox, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotSetShowSegments(int)));
-
-    connect(ui_->segmentIdx, SIGNAL(valueChanged(int)), ui_->scene_widget, SLOT(slotDrawSegmentAndShortestPathInterpolation(int)));
+    // Pathlet View
+    connect(ui_->showPathletsCheckBox, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotSetShowPathlets(int)));
+    connect(ui_->showPathletDirection, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotSetShowPathletDirection(int)));
+    connect(ui_->scene_widget, SIGNAL(updatePathletInfo(QString &)), this, SLOT(slotNewPathletsComputed(QString &)));
+    connect(ui_->showIthPathlet, SIGNAL(valueChanged(int)), ui_->scene_widget, SLOT(slotShowIthPathlet(int)));
+    connect(ui_->generateRoads, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotGenerateRoads()));
     
     // Graph View
     connect(ui_->showGraphCheckBox, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotSetShowGraph(int)));
@@ -267,29 +267,38 @@ void MainWindow::slotNewSamplesDrawn(QString &info){
     ui_->sampleInfoLabel->setText(info);
 }
 
-void MainWindow::slotNewSegmentsComputed(QString &info){
-    ui_->segmentInfoLabel->setText(info);
+void MainWindow::slotNewPathletsComputed(QString &info){
+    ui_->pathletInfoLabel->setText(info);
 }
 
 void MainWindow::slotNewGraphComputed(QString &info){
     ui_->graphInfoLabel->setText(info);
 }
 
-void MainWindow::slotSetNClusters(int &n_cluster){
-    if (n_cluster > 0) {
-        ui_->showClusterId->setMaximum(n_cluster);
+void MainWindow::slotSetNPathlets(int &n_pathlets){
+    if (n_pathlets > 0) {
+        ui_->selectedPathletId->setMaximum(n_pathlets-1);
     }
     else{
-        ui_->showClusterId->setValue(0);
+        ui_->selectedPathletId->setValue(0);
+    }
+}
+
+void MainWindow::slotSetIthPathletToShow(int &value){
+    if (value >= 0) {
+        ui_->showIthPathlet->setValue(value);
+    }
+    else{
+        ui_->showIthPathlet->setValue(-1);
     }
 }
 
 void MainWindow::slotSetNDBSCANClusters(int &n_dbscan_cluster){
     if (n_dbscan_cluster > 0) {
-        ui_->selectedClusterId->setMaximum(n_dbscan_cluster);
+        ui_->selectedPathletId->setMaximum(n_dbscan_cluster);
     }
     else{
-        ui_->selectedClusterId->setValue(0);
+        ui_->selectedPathletId->setValue(0);
     }
 }
 

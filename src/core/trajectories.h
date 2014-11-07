@@ -35,6 +35,10 @@ public:
     int nSegments() {return segments_.size();}
     vector<Segment> &segments() {return segments_;}
     
+    int nPathlets() { return pathlets_.size(); }
+    int nSelectedPathlets() { return selected_pathlets_.size(); }
+    int nPathletsToDraw() { return pathlet_to_draw_.size(); }
+    
     const vector<Vertex>& normalized_vertices(void) const {return normalized_vertices_;}
 	const vector<vector<int> >& trajectories(void) const {return trajectories_;}
     const QVector4D&    BoundBox(void) const {return bound_box_;}
@@ -78,19 +82,34 @@ public:
     void showAllDBSCANClusters();
     void cutTraj();
     void mergePathlet();
-    void selectPathlet();
+    int selectPathlet();
     void findNearbyPathlets(int segment_idx, set<int> &nearby_pathlet_idxs);
     void expandPathletCluster(int starting_segment_idx, float distance_threshold, vector<int> &result);
     float computeHausdorffDistance(int seg1_idx, int seg2_idx);
     float onewayHausdorffDistance(int from_idx, int to_idx);
     bool shortestPathSelection(vector<vector<int>> &edges, vector<vector<int>> &edge_weight_idxs, vector<float> &pathlet_weights, vector<int> &chosen_pathlets);
     void douglasPeucker(int start_idx, int end_idx, float epsilon, Segment &seg, vector<int> &results);
-    
     void peakDetector(vector<float> &values, int smooth_factor, int window_size, float ratio, vector<int> &detected_peaks);
+    bool savePathlets(const string &filename);
+    bool loadPathlets(const string &filename, int &n_selected);
+    
+    int setPathletThreshold(int);
+    void updateSelectedPathlets(vector<int> &);
+    
+    void showAllPathlets();
+    void showPathletAt(int);
+    void updatePathletSearchTree();
+    void setShowPathlets(bool val) {show_pathlets_ = val;}
+    void setShowPathletDirection(bool val) {show_pathlet_direction_ = val;}
+    void selectPathletsWithSearchRange(float range);
+    void showIthPathlet(int ith);
+    
+    void generateRoads();
+    
+    float pointToSegmentDistance(SegPoint &query_pt, SegPoint &p1, SegPoint &p2);
     
     void computeSegments(float extension);
     void setShowSegments(bool val) {show_segments_ = val;}
-    void selectSegmentsWithSearchRange(float range);
     void drawSegmentAt(int);
     void clearDrawnSegments();
     Segment &segmentAt(int);
@@ -182,26 +201,44 @@ private:
     vector<Segment>                 simplified_segments_;
     vector<vector<int>>             segment_id_lookup_;
     vector<vector<int>>             graph_interpolated_segments_;
-    
-    // Pathlets
-    vector<vector<int>>             pathlets_; // Each pathlet is a collection of segment indexes
-    vector<float>                   pathlet_scores_; // The score for each pathlet
-    map<int, set<int>>              traj_pathlets_;
-    map<int, set<int>>              pathlet_trajs_;
-    vector<map<int, pair<int, int>>>  pathlet_explained_;
-    vector<int>                     selected_pathlets_;
-    
     vector<int>                     segments_to_draw_;
     vector<int>                     segments_to_draw_for_samples_;
     vector<Color>                   segments_to_draw_for_samples_colors_;
     
-        // Segment OpenGL
+    // Segment OpenGL
     vector<Vertex>                  segment_vertices_;
     vector<Color>                   segment_colors_;
     vector<Vertex>                  segment_speed_;
     vector<Color>                   segment_speed_colors_;
     vector<int>                     segment_speed_indices_;
     vector<vector<int>>             segment_idxs_;
+    
+    // Pathlets
+    bool                            show_pathlets_;
+    int                             ith_pathlet_to_show_;
+    bool                            show_pathlet_direction_;
+    PclPointCloud::Ptr              pathlet_data_;
+    PclSearchTree::Ptr              pathlet_tree_;
+    PclPointCloud::Ptr              single_pathlet_data_;
+    PclSearchTree::Ptr              single_pathlet_tree_;
+    PclPointCloud::Ptr              map_data_;
+    PclSearchTree::Ptr              map_tree_;
+    int                             pathlet_threshold_;
+    vector<vector<int>>             pathlets_; // Each pathlet is a collection of segment indexes
+    vector<int>                     pathlet_selected_count_;
+    vector<float>                   pathlet_scores_; // The score for each pathlet
+    map<int, set<int>>              traj_pathlets_;
+    map<int, set<int>>              pathlet_trajs_;
+    vector<map<int, pair<int, int>>>  pathlet_explained_;
+    vector<int>                        selected_pathlets_;
+    vector<vector<int>>             trajectory_explanations_;
+    vector<Vertex>                  pathlet_vertices_;
+    vector<Color>                   pathlet_colors_;
+    vector<vector<int>>             pathlet_idxs_;
+    vector<Vertex>                  pathlet_speed_;
+    vector<Color>                   pathlet_speed_colors_;
+    vector<vector<int>>             pathlet_speed_indices_;
+    vector<int>                     pathlet_to_draw_;
     
     // Below are for trajectory display
     QVector4D                       display_bound_box_;

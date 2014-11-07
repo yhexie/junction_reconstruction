@@ -43,6 +43,10 @@ SceneWidget::SceneWidget(QWidget * parent, const QGLWidget * shareWidget, Qt::Wi
     right_click_menu_->addSeparator();
     right_click_menu_->addAction("Open OSM", this, SLOT(slotOpenOsmMap()));
     
+    right_click_menu_->addSeparator();
+    right_click_menu_->addAction("Save Pathlets", this, SLOT(slotSavePathlets()));
+    right_click_menu_->addAction("Load Pathlets", this, SLOT(slotLoadPathlets()));
+    
     show_map_ = true;
     show_graph_ = true;
 }
@@ -220,14 +224,17 @@ void SceneWidget::paintGL(){
     const qreal retinaScale = devicePixelRatio();
     glViewport(0, 0, width() * retinaScale, height() * retinaScale);
     
-    qglClearColor(QColor(220, 220, 220));
+    float aspect_ratio = static_cast<float>(width()) / height();
+    
+    //qglClearColor(QColor(220, 220, 220));
+    qglClearColor(QColor(0, 0, 0, 1));
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     m_program_->bind();
     view_matrix_.setToIdentity();
     view_matrix_.ortho(-1.0f, 1.0f, -1.0f, 1.0f, 0.1f, 100.0f);
     view_matrix_.translate(0, 0, -2);
     view_matrix_.translate(0.005*xTrans, 0.005*yTrans);
-    view_matrix_.scale(scaleFactor_, scaleFactor_, 1.0f);
+    view_matrix_.scale(scaleFactor_, scaleFactor_*aspect_ratio, 1.0f);
     view_matrix_.translate(zoomTransX_, zoomTransY_);
     //view_matrix_.rotate(-xRot/16.0, 0.0, 0.0, 1.0);
     //view_matrix_.rotate(-yRot/16.0, 1.0, 0.0, 0.0);
@@ -349,6 +356,57 @@ void SceneWidget::updateMaxScaleFactor(){
     maxScaleFactor_ = delta_boundary / 20.0;
 }
 
+void SceneWidget::slotSavePathlets(void){
+    MainWindow* main_window = MainWindow::getInstance();
+    
+    QString filename = QFileDialog::getSaveFileName(main_window, "Save Pathlets",
+                                                    main_window->getWorkspace().c_str(), "Pathlets (*.txt)");
+    if (filename.isEmpty())
+        return;
+    
+    trajectories_->savePathlets(filename.toStdString());
+    
+    // Generate information
+    QString str;
+    QTextStream(&str) << " pathlets saved.";
+    emit updatePathletInfo(str);
+    
+    return;
+}
+
+void SceneWidget::slotLoadPathlets(void){
+    if (trajectories_->data()->size() == 0){
+        QMessageBox msgBox;
+        msgBox.setText("Please load trajectories first.");
+        msgBox.exec();
+        return;
+    }
+    
+    MainWindow* main_window = MainWindow::getInstance();
+    
+    QString filename = QFileDialog::getOpenFileName(main_window, "Load Pathlets",
+                                                    main_window->getWorkspace().c_str(), "Pathlets (*.txt)");
+    if (filename.isEmpty())
+        return;
+   
+    int n_selected;
+    if (trajectories_->loadPathlets(filename.toStdString(), n_selected))
+    {
+        emit nPathletSelected(n_selected);
+        
+        trajectories_->prepareForVisualization(bound_box_);
+        
+        // Generate information
+        QString str;
+        QTextStream(&str) << trajectories_->nPathlets() << " pathlets loaded.";
+        emit updatePathletInfo(str);
+        
+        updateGL();
+    }
+    
+    return;
+}
+
 void SceneWidget::slotOpenTrajectories(void)
 {
     MainWindow* main_window = MainWindow::getInstance();
@@ -454,53 +512,12 @@ void SceneWidget::slotExtractMapBranchingPoints(){
         return;
 }
 
-void SceneWidget::slotClusterSegmentsAtSample(void){
-    set<int> &picked_samples = trajectories_->picked_sample_idxs();
-    if (picked_samples.size() == 0) {
-        return;
-    }
-    
-    vector<int> selected_samples;
-    for(set<int>::iterator it = picked_samples.begin(); it != picked_samples.end(); ++it){
-        selected_samples.push_back(*it);
-    }
-    
-    MainWindow* main_window = MainWindow::getInstance();
-    double sigmaValue = main_window->getSigmaValue();
-    int minClusterSize = main_window->getMinClusterSize();
-    //int n_cluster = trajectories_->clusterSegmentsUsingDistanceAtSample(sample_id, sigmaValue, thresholdValue, minClusterSize);
-    vector<vector<int>> clusters;
-    int n_cluster = trajectories_->fpsMultiSiteSegmentClustering(selected_samples, sigmaValue, minClusterSize, clusters);
-    QString str;
-    QTextStream(&str) << n_cluster << " cluster extracted.";
-    main_window->showInStatusBar(str);
-    //trajectories_->clusterSegmentsWithGraphAtSample(sample_id, graph_);
-    emit nClusterComputed(n_cluster);
-    
-    updateGL();
-    
-}
-
-void SceneWidget::slotClusterSegmentsAtAllSamples(void){
-    MainWindow* main_window = MainWindow::getInstance();
-    double sigmaValue = main_window->getSigmaValue();
-    int minClusterSize = main_window->getMinClusterSize();
-    clock_t begin = clock();
-    trajectories_->clusterSegmentsAtAllSamples(sigmaValue, minClusterSize);
-    clock_t end = clock();
-    double time_elapsed = double(end - begin) / CLOCKS_PER_SEC;
-    QString str;
-    QTextStream(&str) << "Clustering completed. Time elapsed: "<<time_elapsed <<" sec.";
-    main_window->showInStatusBar(str);
-    updateGL();
-}
-
 void SceneWidget::slotPickClusterAtIdx(int cluster_idx){
     trajectories_->showClusterAtIdx(cluster_idx);
     updateGL();
 }
 
-void SceneWidget::slotExportSampleSegments(){
+void SceneWidget::slotExportSamplePathlets(){
     MainWindow* main_window = MainWindow::getInstance();
     
     QString filename = QFileDialog::getSaveFileName(main_window, "Save Sample Clusters",
@@ -604,6 +621,8 @@ void SceneWidget::clearData(void){
     
     bound_box_ = QVector4D(1e10, -1e10, 1e10, -1e10);
     
+    int val = -1;
+    emit ithPathletToShowChanged(val);
     trajectories_->clearData();
     osmMap_->clearData();
     selection_mode_ = false;
@@ -733,16 +752,55 @@ void SceneWidget::slotShowAllClusters(){
 
 void SceneWidget::slotCutTraj(){
     trajectories_->cutTraj();
+   
+    // Generate information
+    QString str;
+    QTextStream(&str) << trajectories_->nSegments() << " pathlets generated.";
+    emit updatePathletInfo(str);
     updateGL();
 }
 
 void SceneWidget::slotMergePathlet(){
     trajectories_->mergePathlet();
+    
+    // Generate information
+    QString str;
+    QTextStream(&str) << "Merged into " << trajectories_->nPathlets() << " pathlets.";
+    emit updatePathletInfo(str);
+    
     updateGL();
 }
 
 void SceneWidget::slotSelectPathlet(){
-    trajectories_->selectPathlet();
+    int n_selected_pathlets = trajectories_->selectPathlet();
+    trajectories_->prepareForVisualization(bound_box_);
+    emit nPathletSelected(n_selected_pathlets);
+    
+    // Generate information
+    QString str;
+    QTextStream(&str) << n_selected_pathlets << " pathlets selected out of " << trajectories_->nPathlets() << ".";
+    emit updatePathletInfo(str);
+    updateGL();
+}
+
+void SceneWidget::slotSetPathletThreshold(int new_threshold){
+    int n_selected = trajectories_->setPathletThreshold(new_threshold);
+    emit nPathletSelected(n_selected);
+    
+    // Generate information
+    QString str;
+    QTextStream(&str) << n_selected << " pathlets selected out of " << trajectories_->nPathlets() << ".";
+    emit updatePathletInfo(str);
+    updateGL();
+}
+
+void SceneWidget::slotShowAllPathlets(){
+    trajectories_->showAllPathlets();
+    updateGL();
+}
+
+void SceneWidget::slotShowPathletAt(int id){
+    trajectories_->showPathletAt(id);
     updateGL();
 }
 
@@ -762,11 +820,13 @@ void SceneWidget::slotEnterSampleSelectionMode(void){
 
 void SceneWidget::slotClearPickedSamples(void){
     trajectories_->clearPickedSamples();
+    int val = -1;
+    emit ithPathletToShowChanged(val);
     updateGL();
 }
 
 void SceneWidget::slotSampleCoverDistanceChange(double d){
-    trajectories_->selectSegmentsWithSearchRange(static_cast<float>(d));
+    trajectories_->selectPathletsWithSearchRange(static_cast<float>(d));
     updateGL();
 }
 
@@ -867,11 +927,29 @@ void SceneWidget::slotDrawSegmentAndShortestPathInterpolation(int seg_idx){
     updateGL();
 }
 
-void SceneWidget::slotSetShowSegments(int state){
+void SceneWidget::slotSetShowPathlets(int state){
     if (state == Qt::Unchecked)
-        trajectories_->setShowSegments(false);
+        trajectories_->setShowPathlets(false);
     else
-        trajectories_->setShowSegments(true);
+        trajectories_->setShowPathlets(true);
+    updateGL();
+}
+
+void SceneWidget::slotSetShowPathletDirection(int state){
+    if (state == Qt::Unchecked)
+        trajectories_->setShowPathletDirection(false);
+    else
+        trajectories_->setShowPathletDirection(true);
+    updateGL();
+}
+
+void SceneWidget::slotShowIthPathlet(int ith){
+    trajectories_->showIthPathlet(ith);
+    updateGL();
+}
+
+void SceneWidget::slotGenerateRoads(){
+    trajectories_->generateRoads();
     updateGL();
 }
 

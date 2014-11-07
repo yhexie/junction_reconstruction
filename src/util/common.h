@@ -17,13 +17,14 @@ static const double POSITIVE_INFINITY = 1e6;
 
 // Visualization Z values
     // Traj
-static const float Z_TRAJECTORIES = -1.0f;
-static const float Z_SELECTED_TRAJ = -0.4f;
-static const float Z_TRAJECTORY_SPEED = -0.3f;
-static const float Z_SAMPLES      = -0.5f;
-static const float Z_SELECTED_SAMPLES = 0.0f;
-static const float Z_SEGMENTS     = -0.4f;
-static const float Z_DISTANCE_GRAPH = -0.3f;
+static const float Z_TRAJECTORIES           = -1.0f;
+static const float Z_PATHLETS               = -0.4f;
+static const float Z_SELECTED_TRAJ          = -0.4f;
+static const float Z_TRAJECTORY_SPEED       = -0.3f;
+static const float Z_SAMPLES                = -0.5f;
+static const float Z_SELECTED_SAMPLES       = 0.0f;
+static const float Z_SEGMENTS               = -0.4f;
+static const float Z_DISTANCE_GRAPH         = -0.3f;
     // OSM
 static const float Z_OSM = -0.35f;
     // Graph

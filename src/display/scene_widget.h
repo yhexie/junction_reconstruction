@@ -36,6 +36,7 @@ signals:
     // Trajectories
     void trajFileLoaded(QString &filename, const size_t &numTraj, const size_t &numPoint);
     void nClusterComputed(int &n_cluster);
+    void nPathletSelected(int &n_pathlet);
     void nDBSCANClusterComputed(int &n_dbscan_cluster);
     
     // Map
@@ -46,6 +47,10 @@ signals:
     
     // Segments
     void newSegmentsComputed(QString &);
+    
+    // Pathlets
+    void updatePathletInfo(QString &);
+    void ithPathletToShowChanged(int &ith);
     
     // Graph
     void newGraphComputed(QString &);
@@ -67,6 +72,9 @@ signals:
     void slotCutTraj();
     void slotMergePathlet();
     void slotSelectPathlet();
+    void slotSetPathletThreshold(int);
+    void slotShowAllPathlets();
+    void slotShowPathletAt(int);
     
     // Map
     void slotOpenOsmMap(void);
@@ -79,18 +87,24 @@ signals:
     void slotEnterSampleSelectionMode(void);
     void slotClearPickedSamples(void);
     void slotSetShowSamples(int);
-    void slotClusterSegmentsAtSample(void);
-    void slotClusterSegmentsAtAllSamples(void);
     void slotPickClusterAtIdx(int);
-    void slotExportSampleSegments();
+    void slotExportSamplePathlets();
     void slotExtractSampleFeatures();
     
     // Segments
     void slotGenerateSegments(void);
     void slotSampleCoverDistanceChange(double);
     void slotDrawSegmentAndShortestPathInterpolation(int seg_idx);
-    void slotSetShowSegments(int);
+    
     void slotInterpolateSegments(void);
+    
+    // Pathlets
+    void slotLoadPathlets();
+    void slotSavePathlets();
+    void slotSetShowPathlets(int);
+    void slotSetShowPathletDirection(int);
+    void slotShowIthPathlet(int);
+    void slotGenerateRoads();
     
     // Graph
     void slotInitializeGraph(void);

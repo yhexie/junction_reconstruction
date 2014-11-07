@@ -47,9 +47,6 @@ public:
     double getDBSCANEpsValue() { return ui_->dbscanEps->value(); }
     int getDBSCANMinPtsValue() { return ui_->dbscanMinPts->value(); }
     
-    double getSigmaValue() {return ui_->sigmaValue->value(); }
-    int getMinClusterSize() {return ui_->minClusterSize->value(); }
-   
 	const std::string& getWorkspace(void) const {return workspace_;}
     
     public slots:
@@ -79,9 +76,10 @@ private slots:
     void slotTrajFileLoaded(QString &filename, const size_t &numTraj, const size_t &numPoint);
     void slotOsmFileLoaded(QString &filename);
     void slotNewSamplesDrawn(QString &);
-    void slotNewSegmentsComputed(QString &);
+    void slotNewPathletsComputed(QString &);
     void slotNewGraphComputed(QString &);
-    void slotSetNClusters(int &n_cluster);
+    void slotSetNPathlets(int &n_pathlets);
+    void slotSetIthPathletToShow(int &value);
     void slotSetNDBSCANClusters(int &n_dbscan_cluster);
     void slotSetUTMZone(int);
     

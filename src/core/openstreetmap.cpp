@@ -54,6 +54,8 @@ bool OpenStreetMap::loadOSM(const string &filename){
     is_empty_ = false;
     
     // Compute map point cloud with 10m accuracy
+    return true;
+    
     PclPoint point;
     point.setNormal(0, 0, 1);
     for (size_t i = 0; i < ways_.size(); ++i) {
