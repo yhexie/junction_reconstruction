@@ -182,7 +182,7 @@ namespace Osmium {
                     m_node->~Node();
                     new (m_node.get()) Osmium::OSM::Node();
                 } else {
-                    m_node = make_shared<Osmium::OSM::Node>();
+                    m_node = boost::make_shared<Osmium::OSM::Node>();
                 }
                 return *m_node;
             }
@@ -192,7 +192,7 @@ namespace Osmium {
                     m_way->~Way();
                     new (m_way.get()) Osmium::OSM::Way(2000);
                 } else {
-                    m_way = make_shared<Osmium::OSM::Way>(2000);
+                    m_way = boost::make_shared<Osmium::OSM::Way>(2000);
                 }
                 return *m_way;
             }
@@ -202,7 +202,7 @@ namespace Osmium {
                     m_relation->~Relation();
                     new (m_relation.get()) Osmium::OSM::Relation();
                 } else {
-                    m_relation = make_shared<Osmium::OSM::Relation>();
+                    m_relation = boost::make_shared<Osmium::OSM::Relation>();
                 }
                 return *m_relation;
             }
