@@ -14,7 +14,7 @@ if(MSVC)
   #SET(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /LTCG")
   # /MANIFEST:NO") # please, don't disable manifest generation, otherwise crash at start for vs2008
 else(MSVC)
-    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ftemplate-depth-1024 -std=c++11 -stdlib=libc++")
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ftemplate-depth-1024 -std=c++11 -stdlib=libc++ -Wno-deprecated-register")
     #SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ftemplate-depth-1024 -stdlib=libc++")
 endif()
 
@@ -24,7 +24,7 @@ if((NOT APPLE) OR (NOT CMAKE_COMPILER_IS_GNUCXX) OR (GCC_VERSION VERSION_GREATER
 endif()
 
 if (APPLE)
-  set(CMAKE_PREFIX_PATH "/usr/local/Cellar/qt5/5.3.1")
+  set(CMAKE_PREFIX_PATH "/Users/chenchen/Qt/5.4/clang_64/")
 endif()
 
 if(OPENMP_FOUND)

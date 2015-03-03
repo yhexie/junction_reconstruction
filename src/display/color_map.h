@@ -18,7 +18,7 @@ public:
         return singleton_;
     }
     
-    typedef enum {LIGHT_BLUE, DARK_GRAY, LIGHT_GRAY, ORANGE} NamedColor;
+    typedef enum {LIGHT_BLUE, DARK_GRAY, LIGHT_GRAY, ORANGE, RED, BLUE, GREEN} NamedColor;
     
     /* more (non-static) functions here */
     const Color& getNamedColor(NamedColor named_color);
@@ -29,13 +29,16 @@ private:
     ColorMap();                            // ctor hidden
     ColorMap(ColorMap const&);           // copy ctor hidden
     ColorMap& operator=(ColorMap const&); // assign op. hidden
-    virtual ~ColorMap(){}                          // dtor hidden
+    virtual ~ColorMap(void);                          // dtor hidden
     
     std::vector<Color> continuous_;
     Color light_blue_;
     Color dark_gray_;
     Color light_gray_;
     Color orange_;
+    Color red_;
+    Color blue_;
+    Color green_;
     std::vector<Color> discrete_;
 };
 

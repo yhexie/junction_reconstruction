@@ -9,11 +9,12 @@
 #include "cgal_types.h"
 #include <CGAL/intersections.h>
 #include "trajectories.h"
+#include "road_generator.h"
 #include "openstreetmap.h"
-#include "graph.h"
 #include "renderable.h"
 #include "color_map.h"
 #include "main_window.h"
+#include "common.h"
 
 SceneWidget::SceneWidget(QWidget * parent, const QGLWidget * shareWidget, Qt::WindowFlags f)
 :QGLWidget(QGLFormat(QGL::SampleBuffers), parent)
@@ -24,31 +25,33 @@ SceneWidget::SceneWidget(QWidget * parent, const QGLWidget * shareWidget, Qt::Wi
     xTrans = 0;
     yTrans = 0;
     
-    bound_box_ = QVector4D(1e10, -1e10, 1e10, -1e10);
+    SceneConst::getInstance().setBoundBox(QVector4D(1e10, -1e10, 1e10, -1e10));
     
-    trajectories_ = new Trajectories(this);
-    sample_selection_mode = false;
-    osmMap_ = new OpenStreetMap(this);
-    graph_ = new Graph(this);
-    selection_mode_ = false;
+    trajectories_               = new Trajectories(this);
+    road_generator_             = new RoadGenerator(this);
+    feature_selection_mode_     = false;
+    query_init_feature_selector_ = new QueryInitFeatureSelector(this);
+    query_q_feature_selector_ = new QueryQFeatureSelector(this);
     
-    scaleFactor_ = 1.0;
-    maxScaleFactor_ = 1.0;
-    zoomTransX_ = 0.0f;
-    zoomTransY_ = 0.0f;
     
-    right_click_menu_ = new QMenu;
+    sample_selection_mode       = false;
+    osmMap_                     = new OpenStreetMap(this);
+//    graph_                      = new Graph(this);
+    selection_mode_             = false;
+    
+    scaleFactor_                = 1.0;
+    maxScaleFactor_             = 1.0;
+    zoomTransX_                 = 0.0f;
+    zoomTransY_                 = 0.0f;
+    
+    right_click_menu_           = new QMenu;
     right_click_menu_->addAction("Open trajectories", this, SLOT(slotOpenTrajectories()));
     right_click_menu_->addAction("Save trajectories", this, SLOT(slotSaveTrajectories()));
     right_click_menu_->addSeparator();
     right_click_menu_->addAction("Open OSM", this, SLOT(slotOpenOsmMap()));
     
-    right_click_menu_->addSeparator();
-    right_click_menu_->addAction("Save Pathlets", this, SLOT(slotSavePathlets()));
-    right_click_menu_->addAction("Load Pathlets", this, SLOT(slotLoadPathlets()));
-    
     show_map_ = true;
-    show_graph_ = true;
+//    show_graph_ = true;
 }
 
 SceneWidget::~SceneWidget()
@@ -56,8 +59,11 @@ SceneWidget::~SceneWidget()
     delete m_program_;
     delete right_click_menu_;
     delete trajectories_;
+    delete road_generator_;
+    delete query_init_feature_selector_;
+    delete query_q_feature_selector_;
     delete osmMap_;
-    delete graph_;
+    //delete graph_;
 }
 
 void SceneWidget::toggleSelectionMode(){
@@ -99,11 +105,13 @@ void SceneWidget::mousePressEvent(QMouseEvent *event)
             if(fabs(intersection_point->x()) > 1.0 || fabs(intersection_point->y()) > 1.0){
                 return;
             }
+           
+            QVector4D bound_box = SceneConst::getInstance().getBoundBox();
             
-            float center_x = 0.5*bound_box_[0] + 0.5*bound_box_[1];
-            float center_y = 0.5*bound_box_[2] + 0.5*bound_box_[3];
-            float delta_x = bound_box_[1] - bound_box_[0];
-            float delta_y = bound_box_[3] - bound_box_[2];
+            float center_x = 0.5*bound_box[0] + 0.5*bound_box[1];
+            float center_y = 0.5*bound_box[2] + 0.5*bound_box[3];
+            float delta_x = bound_box[1] - bound_box[0];
+            float delta_y = bound_box[3] - bound_box[2];
             float scale_factor_ = (delta_x > delta_y) ? 0.5*delta_x : 0.5*delta_y;
             
             float intersect_x = center_x + intersection_point->x()*scale_factor_;
@@ -117,6 +125,7 @@ void SceneWidget::mousePressEvent(QMouseEvent *event)
                     trajectories_->selectNearLocation(intersect_x, intersect_y);
                 }
             }
+            emit mouseClickedAt(intersect_x, intersect_y);
             updateGL();
         }
     }
@@ -216,7 +225,10 @@ void SceneWidget::initializeGL(){
     m_program_ = new CustomizedShaderProgram(this);
     trajectories_->setShadderProgram(m_program_);
     osmMap_->setShadderProgram(m_program_);
-    graph_->setShadderProgram(m_program_);
+    //graph_->setShadderProgram(m_program_);
+    road_generator_->setShadderProgram(m_program_);
+    query_init_feature_selector_->setShadderProgram(m_program_);
+    query_q_feature_selector_->setShadderProgram(m_program_);
     m_program_->link();
 }
 
@@ -226,8 +238,7 @@ void SceneWidget::paintGL(){
     
     float aspect_ratio = static_cast<float>(width()) / height();
     
-    //qglClearColor(QColor(220, 220, 220));
-    qglClearColor(QColor(0, 0, 0, 1));
+    qglClearColor(QColor(220, 220, 220));
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     m_program_->bind();
     view_matrix_.setToIdentity();
@@ -243,14 +254,15 @@ void SceneWidget::paintGL(){
         osmMap_->draw();
     }
     
-    if (show_graph_){
-        graph_->draw();
-    }
+//    if (show_graph_){
+//        graph_->draw();
+//    }
     trajectories_->draw();
     
     // Draw Axis at the bottom left corner
-    float delta_x = bound_box_[1] - bound_box_[0];
-    float delta_y = bound_box_[3] - bound_box_[2];
+    QVector4D bound_box = SceneConst::getInstance().getBoundBox();
+    float delta_x = bound_box[1] - bound_box[0];
+    float delta_y = bound_box[3] - bound_box[2];
     
     if (delta_x < 0 || delta_y < 0) {
         return;
@@ -297,6 +309,13 @@ void SceneWidget::paintGL(){
         glDrawArrays(GL_LINE_STRIP, 0, axis_vertices.size());
     }
     
+    // Draw Road Seed Selection
+    road_generator_->draw();
+    
+    // Features
+    query_init_feature_selector_->draw();
+    query_q_feature_selector_->draw();
+    
     m_program_->release();
 }
 
@@ -325,102 +344,46 @@ void SceneWidget::prepareContextMenu(QMenu* menu)
 	return;
 }
 
-void SceneWidget::updateSceneBoundary(QVector4D bound_box_to_insert){
-    if (bound_box_[0] > bound_box_to_insert[0]) {
-        bound_box_[0] = bound_box_to_insert[0];
-    }
-    if (bound_box_[1] < bound_box_to_insert[1]) {
-        bound_box_[1] = bound_box_to_insert[1];
-    }
-    if (bound_box_[2] > bound_box_to_insert[2]) {
-        bound_box_[2] = bound_box_to_insert[2];
-    }
-    if (bound_box_[3] < bound_box_to_insert[3]) {
-        bound_box_[3] = bound_box_to_insert[3];
-    }
+void SceneWidget::updateSceneBoundary(){
     updateMaxScaleFactor();
-    trajectories_->prepareForVisualization(bound_box_);
-    osmMap_->prepareForVisualization(bound_box_);
-    graph_->prepareForVisualization(bound_box_);
+    trajectories_->prepareForVisualization();
+    osmMap_->prepareForVisualization();
+//    graph_->prepareForVisualization();
 }
 
 void SceneWidget::setSceneBoundary(QVector4D new_bound){
-    bound_box_ = new_bound;
+    SceneConst::getInstance().setBoundBox(new_bound);
     updateMaxScaleFactor();
 }
 
 void SceneWidget::updateMaxScaleFactor(){
-    float delta_x = bound_box_[1] - bound_box_[0];
-    float delta_y = bound_box_[3] - bound_box_[2];
+    QVector4D bound_box = SceneConst::getInstance().getBoundBox();
+    float delta_x = bound_box[1] - bound_box[0];
+    float delta_y = bound_box[3] - bound_box[2];
     float delta_boundary = (delta_x > delta_y) ? delta_x : delta_y;
     maxScaleFactor_ = delta_boundary / 20.0;
-}
-
-void SceneWidget::slotSavePathlets(void){
-    MainWindow* main_window = MainWindow::getInstance();
-    
-    QString filename = QFileDialog::getSaveFileName(main_window, "Save Pathlets",
-                                                    main_window->getWorkspace().c_str(), "Pathlets (*.txt)");
-    if (filename.isEmpty())
-        return;
-    
-    trajectories_->savePathlets(filename.toStdString());
-    
-    // Generate information
-    QString str;
-    QTextStream(&str) << " pathlets saved.";
-    emit updatePathletInfo(str);
-    
-    return;
-}
-
-void SceneWidget::slotLoadPathlets(void){
-    if (trajectories_->data()->size() == 0){
-        QMessageBox msgBox;
-        msgBox.setText("Please load trajectories first.");
-        msgBox.exec();
-        return;
-    }
-    
-    MainWindow* main_window = MainWindow::getInstance();
-    
-    QString filename = QFileDialog::getOpenFileName(main_window, "Load Pathlets",
-                                                    main_window->getWorkspace().c_str(), "Pathlets (*.txt)");
-    if (filename.isEmpty())
-        return;
-   
-    int n_selected;
-    if (trajectories_->loadPathlets(filename.toStdString(), n_selected))
-    {
-        emit nPathletSelected(n_selected);
-        
-        trajectories_->prepareForVisualization(bound_box_);
-        
-        // Generate information
-        QString str;
-        QTextStream(&str) << trajectories_->nPathlets() << " pathlets loaded.";
-        emit updatePathletInfo(str);
-        
-        updateGL();
-    }
-    
-    return;
 }
 
 void SceneWidget::slotOpenTrajectories(void)
 {
     MainWindow* main_window = MainWindow::getInstance();
     
-	QString filename = QFileDialog::getOpenFileName(main_window, "Open Trajectories",
-                                                    main_window->getWorkspace().c_str(), "Trajectories (*.txt *.pbf)");
+	QString filename = QFileDialog::getOpenFileName(main_window,
+                                                    "Open Trajectories",
+                                                    default_trajectory_dir.c_str(),
+                                                    "Trajectories (*.txt *.pbf)");
 	if (filename.isEmpty())
 		return;
     
     if (trajectories_->load(filename.toStdString()))
 	{
-        updateSceneBoundary(trajectories_->BoundBox());
+        updateSceneBoundary();
         updateGL();
         emit trajFileLoaded(filename, trajectories_->getNumTraj(), trajectories_->getNumPoint());
+        
+        road_generator_->setTrajectories(trajectories_);
+        query_init_feature_selector_->setTrajectories(trajectories_);
+        query_q_feature_selector_->setTrajectories(trajectories_);
 	}
     
 	return;
@@ -432,7 +395,6 @@ void SceneWidget::slotOpenTrajectoriesFromFile(const QString &filename){
     
     if (trajectories_->load(filename.toStdString()))
 	{
-        updateSceneBoundary(trajectories_->BoundBox());
         updateGL();
 	}
     
@@ -463,15 +425,17 @@ void SceneWidget::slotOpenOsmMap(void)
 {
     MainWindow* main_window = MainWindow::getInstance();
     
-	QString filename = QFileDialog::getOpenFileName(main_window, "Open OpenStreetMap",
-                                                    main_window->getWorkspace().c_str(), "Trajectories (*.osm)");
+	QString filename = QFileDialog::getOpenFileName(main_window,
+                                                    "Open OpenStreetMap",
+                                                    default_map_dir.c_str(),
+                                                    "Trajectories (*.osm)");
     
 	if (filename.isEmpty())
 		return;
     
     if (osmMap_->loadOSM(filename.toStdString()))
 	{
-        updateSceneBoundary(osmMap_->BoundBox());
+        updateSceneBoundary();
         updateGL();
         emit osmFileLoaded(filename);
 	}
@@ -486,7 +450,6 @@ void SceneWidget::slotOpenOsmMapFromFile(const QString &filename){
     clearData();
     if (osmMap_->loadOSM(filename.toStdString()))
 	{
-        updateSceneBoundary(osmMap_->BoundBox());
         updateGL();
 	}
 }
@@ -512,38 +475,106 @@ void SceneWidget::slotExtractMapBranchingPoints(){
         return;
 }
 
-void SceneWidget::slotPickClusterAtIdx(int cluster_idx){
-    trajectories_->showClusterAtIdx(cluster_idx);
-    updateGL();
-}
-
-void SceneWidget::slotExportSamplePathlets(){
-    MainWindow* main_window = MainWindow::getInstance();
-    
-    QString filename = QFileDialog::getSaveFileName(main_window, "Save Sample Clusters",
-                                                    main_window->getWorkspace().c_str(), "(*.txt)");
-    if (filename.isEmpty())
-        return;
-    
-    trajectories_->exportSampleSegments(filename.toStdString());
-}
-
-void SceneWidget::slotExtractSampleFeatures(){
+void SceneWidget::slotRGeneratorExportQueryInitFeatures(){
     if (trajectories_->samples()->size() == 0){
         QMessageBox msgBox;
-        msgBox.setText("Please do sampling first.");
+        msgBox.setText("Please sample point cloud first.");
         msgBox.exec();
         return;
     }
     
     MainWindow* main_window = MainWindow::getInstance();
     
-    QString filename = QFileDialog::getSaveFileName(main_window, "Save Sample Descriptors to",
-                                                    main_window->getWorkspace().c_str(), "(*.txt)");
+    QString filename = QFileDialog::getSaveFileName(main_window,
+                                                    "Road Generator: Export ?I Features",
+                                                    default_python_test_dir.c_str(),
+                                                    "*.txt");
+    if (filename.isEmpty())
+        return;
+   
+    float sigma = main_window->getUi()->queryInitSearchRadius->value();
+    road_generator_->sparseVoting(sigma);
+    
+    road_generator_->exportQueryInitFeatures(sigma, filename.toStdString());
+    
+    updateGL();
+}
+
+void SceneWidget::slotRGeneratorLoadQueryInitPredictions(){
+    MainWindow* main_window = MainWindow::getInstance();
+    
+    QString filename = QFileDialog::getOpenFileName(main_window,
+                                                    "Road Generator: load ?I Prediction",
+                                                    default_python_test_dir.c_str(),
+                                                    "*.txt");
     if (filename.isEmpty())
         return;
     
-    trajectories_->extractSampleFeatures(filename.toStdString());
+    if (road_generator_->loadQueryInitFeatures(filename.toStdString()))
+    {
+        updateGL();
+    }
+    
+    return;
+    
+}
+
+void SceneWidget::slotRGeneratorAddQueryInitToString(){
+    if(road_generator_->addQueryInitToString()){
+        updateGL();
+    }
+}
+
+void SceneWidget::slotRGeneratorExportQueryQFeatures(){
+    if (trajectories_->samples()->size() == 0){
+        QMessageBox msgBox;
+        msgBox.setText("Please sample point cloud first.");
+        msgBox.exec();
+        return;
+    }
+    
+    MainWindow* main_window = MainWindow::getInstance();
+    
+    QString filename = QFileDialog::getSaveFileName(main_window,
+                                                    "Road Generator: Export ?Q Features",
+                                                    default_python_test_dir.c_str(),
+                                                    "*.txt");
+    if (filename.isEmpty())
+        return;
+    
+    road_generator_->exportQueryQFeatures(filename.toStdString());
+    
+    updateGL();
+}
+
+void SceneWidget::slotRGeneratorLoadQueryQPredictions(){
+    MainWindow* main_window = MainWindow::getInstance();
+    
+    QString filename = QFileDialog::getOpenFileName(main_window,
+                                                    "Road Generator: load ?I Prediction",
+                                                    default_python_test_dir.c_str(),
+                                                    "*.txt");
+    if (filename.isEmpty())
+        return;
+    
+    if (road_generator_->loadQueryQPredictions(filename.toStdString()))
+    {
+        updateGL();
+    }
+    
+    return;
+}
+
+void SceneWidget::slotRGeneratorLocalAdjust(){
+    road_generator_->localAdjustment();
+}
+
+void SceneWidget::slotRGeneratorApplyRules(){
+    road_generator_->applyRules();
+    updateGL();
+}
+
+void SceneWidget::slotRGeneratorCleanupSymbols(){
 }
 
 void SceneWidget::toggleTrajectories(void)
@@ -561,10 +592,11 @@ void SceneWidget::slotSamplePointCloud(void){
         return;
     }
     bool ok;
-    double d = QInputDialog::getDouble(this, tr("Set Sampling Parameter"), tr("Neighborhood Size (in meters):"), 50.0, 1.0, 250.0, 1, &ok);
+    MainWindow* main_window = MainWindow::getInstance();
+    double d = QInputDialog::getDouble(main_window, tr("Set Sampling Parameter"), tr("Neighborhood Size (in meters):"), 20.0, 1.0, 250.0, 1, &ok);
     if (ok) {
-        trajectories_->samplePointCloud(static_cast<float>(d));
-        trajectories_->prepareForVisualization(bound_box_);
+        trajectories_->singleDirectionSamplePointCloud(static_cast<float>(d));
+        trajectories_->prepareForVisualization();
        
         // Output information
         QString str;
@@ -582,23 +614,8 @@ void SceneWidget::slotSetShowSamples(int state){
     updateGL();
 }
 
-void SceneWidget::slotGenerateSegments(void){
-    if (trajectories_->isEmpty()){
-        QMessageBox msgBox;
-        msgBox.setText("Please load trajectory file first.");
-        msgBox.exec();
-        return;
-    }
-    bool ok;
-    double d = QInputDialog::getDouble(this, tr("Set Segment Parameter"), tr("Segment extension (in meters):"), 100.0, 1.0, 250.0, 1, &ok);
-    if (ok) {
-        trajectories_->computeSegments(static_cast<float>(d));
-        
-        // Generate information
-        QString str;
-        QTextStream(&str) << trajectories_->nSegments() << " segments. Extension: " << d << "m.";
-        emit newSegmentsComputed(str);
-    }
+void SceneWidget::slotClearAll(void){
+    clearData();
 }
 
 void SceneWidget::resetView(void){
@@ -618,13 +635,17 @@ void SceneWidget::clearData(void){
     yRot = 0;
     xTrans = 0;
     yTrans = 0;
+   
+    SceneConst::getInstance().setBoundBox(QVector4D(1e10, -1e10, 1e10, -1e10));
     
-    bound_box_ = QVector4D(1e10, -1e10, 1e10, -1e10);
-    
-    int val = -1;
-    emit ithPathletToShowChanged(val);
     trajectories_->clearData();
     osmMap_->clearData();
+    feature_selection_mode_ = false;
+    
+    query_init_feature_selector_->clearVisibleFeatures();
+    query_q_feature_selector_->clearVisibleFeatures();
+    
+    road_generator_->clear();
     selection_mode_ = false;
     
     scaleFactor_ = 1.0;
@@ -647,37 +668,17 @@ void SceneWidget::slotExtractTrajectories(void){
                                                           main_window->getWorkspace().c_str(), "Trajectories (*.pbf)");
 	if (filenames.isEmpty())
 		return;
+  
+    osmMap_->updateMapSearchTree(10.0f); // update the map search tree with 10.0meter grid
     
-    trajectories_->extractFromFiles(filenames, bound_box_, osmMap_->map_search_tree());
-    updateSceneBoundary(trajectories_->BoundBox());
-    updateGL();
-}
-
-void SceneWidget::slotComputePointCloudVariance(){
-    bool ok;
-    int n = QInputDialog::getInt(this, tr("Set Neighborhood"), tr("Neighborhood size):"), 10, 5, 100, 5, &ok);
-    if (ok) {
-        trajectories_->computeWeightAtScale(n);
-    }
-    updateGL();
-}
-
-void SceneWidget::slotSetShowDistanceGraph(int state){
-    if (state == Qt::Unchecked)
-        trajectories_->setShowDistanceGraph(false);
-    else
-        trajectories_->setShowDistanceGraph(true);
-    updateGL();
-}
-
-void SceneWidget::slotComputeDistanceGraph(){
-    if (trajectories_->isEmpty()){
-        QMessageBox msgBox;
-        msgBox.setText("Please loat trajectories first.");
-        msgBox.exec();
-        return;
-    }
-    trajectories_->computeDistanceGraph();
+    QVector4D bound_box = SceneConst::getInstance().getBoundBox();
+    trajectories_->extractFromFiles(filenames, bound_box, osmMap_->map_search_tree());
+    
+    SceneConst::getInstance().setBoundBox(bound_box);
+   
+    trajectories_->prepareForVisualization();
+    osmMap_->prepareForVisualization();
+    
     updateGL();
 }
 
@@ -686,121 +687,6 @@ void SceneWidget::slotSetShowDirection(int state){
         trajectories_->setShowDirection(false);
     else
         trajectories_->setShowDirection(true);
-    updateGL();
-}
-
-void SceneWidget::slotDBSCAN(){
-    if (trajectories_->isEmpty()){
-        QMessageBox msgBox;
-        msgBox.setText("Please load trajectories first.");
-        msgBox.exec();
-        return;
-    }
-    
-    MainWindow* main_window = MainWindow::getInstance();
-    double eps = main_window->getDBSCANEpsValue();
-    int minPts = main_window->getDBSCANMinPtsValue();
-   
-    trajectories_->DBSCAN(eps, minPts);
-    int n_dbscan_clusters = trajectories_->DBSCANNumClusters();
-    emit nDBSCANClusterComputed(n_dbscan_clusters);
-    updateGL();
-}
-
-void SceneWidget::slotSampleDBSCANClusters(){
-    if (trajectories_->isEmpty()){
-        QMessageBox msgBox;
-        msgBox.setText("Please load trajectory file first.");
-        msgBox.exec();
-        return;
-    }
-    if (trajectories_->DBSCANNumClusters() == 0){
-        QMessageBox msgBox;
-        msgBox.setText("Please do DBSCAN clustering first.");
-        msgBox.exec();
-        return;
-    }
-    bool ok;
-    double d = QInputDialog::getDouble(this, tr("Set Sampling Parameter"), tr("Neighborhood Size (in meters):"), 50.0, 1.0, 250.0, 1, &ok);
-    if (ok) {
-        trajectories_->sampleDBSCANClusters(static_cast<float>(d));
-        trajectories_->prepareForVisualization(bound_box_);
-        
-        // Output information
-        QString str;
-        QTextStream(&str) <<trajectories_->samples()->size() << " samples. Grid size: "<<d << " m.";
-        emit newSamplesDrawn(str);
-        updateGL();
-    }
-}
-
-void SceneWidget::slotSelectClusterAt(int clusterId){
-    if (trajectories_->DBSCANNumClusters() == 0){
-        return;
-    }
-    trajectories_->selectDBSCANClusterAt(clusterId);
-    updateGL();
-}
-
-void SceneWidget::slotShowAllClusters(){
-    if (trajectories_->DBSCANNumClusters() == 0){
-        return;
-    }
-    trajectories_->showAllDBSCANClusters();
-    updateGL();
-}
-
-void SceneWidget::slotCutTraj(){
-    trajectories_->cutTraj();
-   
-    // Generate information
-    QString str;
-    QTextStream(&str) << trajectories_->nSegments() << " pathlets generated.";
-    emit updatePathletInfo(str);
-    updateGL();
-}
-
-void SceneWidget::slotMergePathlet(){
-    trajectories_->mergePathlet();
-    
-    // Generate information
-    QString str;
-    QTextStream(&str) << "Merged into " << trajectories_->nPathlets() << " pathlets.";
-    emit updatePathletInfo(str);
-    
-    updateGL();
-}
-
-void SceneWidget::slotSelectPathlet(){
-    int n_selected_pathlets = trajectories_->selectPathlet();
-    trajectories_->prepareForVisualization(bound_box_);
-    emit nPathletSelected(n_selected_pathlets);
-    
-    // Generate information
-    QString str;
-    QTextStream(&str) << n_selected_pathlets << " pathlets selected out of " << trajectories_->nPathlets() << ".";
-    emit updatePathletInfo(str);
-    updateGL();
-}
-
-void SceneWidget::slotSetPathletThreshold(int new_threshold){
-    int n_selected = trajectories_->setPathletThreshold(new_threshold);
-    emit nPathletSelected(n_selected);
-    
-    // Generate information
-    QString str;
-    QTextStream(&str) << n_selected << " pathlets selected out of " << trajectories_->nPathlets() << ".";
-    emit updatePathletInfo(str);
-    updateGL();
-}
-
-void SceneWidget::slotShowAllPathlets(){
-    trajectories_->showAllPathlets();
-    updateGL();
-}
-
-void SceneWidget::slotShowPathletAt(int id){
-    trajectories_->showPathletAt(id);
     updateGL();
 }
 
@@ -820,13 +706,6 @@ void SceneWidget::slotEnterSampleSelectionMode(void){
 
 void SceneWidget::slotClearPickedSamples(void){
     trajectories_->clearPickedSamples();
-    int val = -1;
-    emit ithPathletToShowChanged(val);
-    updateGL();
-}
-
-void SceneWidget::slotSampleCoverDistanceChange(double d){
-    trajectories_->selectPathletsWithSearchRange(static_cast<float>(d));
     updateGL();
 }
 
@@ -846,19 +725,18 @@ void SceneWidget::slotInitializeGraph(void){
     }
     
     //graph_->updateGraphUsingSamplesAndSegments(trajectories_->samples(), trajectories_->sample_tree(), trajectories_->segments(), trajectories_->sample_segment_clusters(), trajectories_->sample_cluster_sizes(), trajectories_->data(), trajectories_->tree());
-    graph_->updateGraphUsingDBSCANClustersAndSamples(trajectories_->samples(), trajectories_->sample_tree(),  trajectories_->data(), trajectories_->tree(), trajectories_->dbscanClusterSamples());
+    //graph_->updateGraphUsingDBSCANClustersAndSamples(trajectories_->samples(), trajectories_->sample_tree(),  trajectories_->data(), trajectories_->tree(), trajectories_->dbscanClusterSamples());
     
 //    graph_->updateGraphUsingSamplesAndGpsPointCloud(trajectories_->samples(), trajectories_->sample_tree(),  trajectories_->data(), trajectories_->tree());
 //    graph_->updateGraphUsingDescriptor(trajectories_->cluster_centers(), trajectories_->cluster_center_search_tree(), trajectories_->descriptors(), trajectories_->cluster_popularity(), trajectories_->data(), trajectories_->tree());
     
-    trajectories_->setGraph(graph_);
-    trajectories_->prepareForVisualization(bound_box_);
-    graph_->prepareForVisualization(bound_box_);
+    trajectories_->prepareForVisualization();
+//    graph_->prepareForVisualization();
     
     // Generate information
     QString str;
-    QTextStream(&str) << graph_->nVertices() << " vertices. " << graph_->nEdges()<< " edges.";
-    emit newGraphComputed(str);
+//    QTextStream(&str) << graph_->nVertices() << " vertices. " << graph_->nEdges()<< " edges.";
+//    emit newGraphComputed(str);
     updateGL();
 }
 
@@ -878,98 +756,132 @@ void SceneWidget::slotUpdateGraph(void){
     }
     
     //graph_->updateGraphUsingSamplesAndSegments(trajectories_->samples(), trajectories_->sample_tree(), trajectories_->segments(), trajectories_->sample_segment_clusters(), trajectories_->sample_cluster_sizes(),trajectories_->data(), trajectories_->tree());
-    graph_->prepareForVisualization(bound_box_);
+//    graph_->prepareForVisualization();
     
     // Generate information
     QString str;
-    QTextStream(&str) << graph_->nVertices() << " vertices. " << graph_->nEdges()<< " edges.";
+//    QTextStream(&str) << graph_->nVertices() << " vertices. " << graph_->nEdges()<< " edges.";
     emit newGraphComputed(str);
     updateGL();
 }
 
+void SceneWidget::slotSaveQueryQFeatures(){
+    MainWindow* main_window = MainWindow::getInstance();
+    
+    QString filename = QFileDialog::getSaveFileName(main_window, "Save ?Q Features",
+                                                    main_window->getWorkspace().c_str(), "*.txt");
+    if (filename.isEmpty())
+        return;
+    
+    query_q_feature_selector_->save(filename.toStdString());
+}
+
+void SceneWidget::slotExportQueryQFeatures(){
+    MainWindow* main_window = MainWindow::getInstance();
+    
+    QString filename = QFileDialog::getSaveFileName(main_window, "Export ?Q Features",
+                                                    main_window->getWorkspace().c_str(), "*.txt");
+    if (filename.isEmpty())
+        return;
+    query_q_feature_selector_->exportFeatures(filename.toStdString());
+    
+    updateGL();
+}
+
+void SceneWidget::slotLoadQueryQPredictions(){
+    MainWindow* main_window = MainWindow::getInstance();
+    
+    QString filename = QFileDialog::getOpenFileName(main_window, "Load Query Q Prediction",
+                                                    main_window->getWorkspace().c_str(), "*.txt");
+    if (filename.isEmpty())
+        return;
+    
+    if (query_q_feature_selector_->loadPrediction(filename.toStdString()))
+    {
+        updateGL();
+    }
+    
+    return;
+}
+
+void SceneWidget::slotComputeQueryInitFeaturesFromMap(){
+    if (osmMap_->isEmpty()){
+        QMessageBox msgBox;
+        msgBox.setText("Please load an openstreetmap first.");
+        msgBox.exec();
+        return;
+    }
+    
+    MainWindow* main_window = MainWindow::getInstance();
+    float sigma = main_window->getUi()->queryInitSearchRadius->value();
+    road_generator_->sparseVoting(sigma);
+    
+    query_init_feature_selector_->computeQueryInitFeaturesFromMap(sigma, osmMap_);
+    updateGL();
+}
+
+void SceneWidget::slotSaveQueryInitFeatures(){
+    MainWindow* main_window = MainWindow::getInstance();
+    
+    QString filename = QFileDialog::getSaveFileName(main_window, "Save Features",
+                                                    default_python_test_dir.c_str(),
+                                                    "*.txt");
+    if (filename.isEmpty())
+        return;
+    query_init_feature_selector_->save(filename.toStdString());
+}
+
+void SceneWidget::slotExportQueryInitFeatures(){
+    MainWindow* main_window = MainWindow::getInstance();
+    
+    QString filename = QFileDialog::getSaveFileName(main_window,
+                                                    "Export Features",
+                                                    default_python_test_dir.c_str(),
+                                                    "*.txt");
+    if (filename.isEmpty())
+        return;
+    
+    float sigma = main_window->getUi()->queryInitSearchRadius->value();
+    road_generator_->sparseVoting(sigma);
+    
+    query_init_feature_selector_->exportFeatures(sigma, filename.toStdString());
+    
+    updateGL();
+}
+
+void SceneWidget::slotLoadQueryInitPredictions(){
+    MainWindow* main_window = MainWindow::getInstance();
+    
+    QString filename = QFileDialog::getOpenFileName(main_window, "Load Query Init Prediction",
+                                                    main_window->getWorkspace().c_str(), "*.txt");
+    if (filename.isEmpty())
+        return;
+    
+    if (query_init_feature_selector_->loadPrediction(filename.toStdString()))
+    {
+        updateGL();
+    }
+    
+    return;
+    
+}
+
+void SceneWidget::slotComputeQueryQFeaturesFromMap(){
+    if (osmMap_->isEmpty()){
+        QMessageBox msgBox;
+        msgBox.setText("Please load an openstreetmap first.");
+        msgBox.exec();
+        return;
+    }
+    
+    query_q_feature_selector_->computeQueryQFeaturesFromMap(osmMap_);
+    updateGL();
+}
+
 void SceneWidget::slotSetShowGraph(int state){
-    if (state == Qt::Unchecked)
-        show_graph_ = false;
-    else
-        show_graph_ = true;
+//    if (state == Qt::Unchecked)
+//        show_graph_ = false;
+//    else
+//        show_graph_ = true;
     updateGL();
-}
-
-void SceneWidget::slotDrawSegmentAndShortestPathInterpolation(int seg_idx){
-    if (trajectories_->nSegments() == 0){
-        return;
-    }
-    printf("Segment %d selected.\n", seg_idx);
-    
-    trajectories_->clearDrawnSegments();
-    trajectories_->drawSegmentAt(seg_idx);
-    Segment &seg = trajectories_->segmentAt(seg_idx);
-    vector<int> seg_pt_idxs;
-    for(size_t i = 0; i < seg.points().size(); ++i){
-        SegPoint &pt = seg.points()[i];
-        seg_pt_idxs.push_back(pt.orig_idx);
-    }
-    
-    graph_->clearPathsToDraw();
-    graph_->drawShortestPathInterpolationFor(seg_pt_idxs);
-    
-    trajectories_->drawSegmentAt(seg_idx+1);
-    Segment &seg1 = trajectories_->segmentAt(seg_idx+1);
-    vector<int> seg_pt_idxs1;
-    for(size_t i = 0; i < seg1.points().size(); ++i){
-        SegPoint &pt = seg1.points()[i];
-        seg_pt_idxs1.push_back(pt.orig_idx);
-    }
-    graph_->drawShortestPathInterpolationFor(seg_pt_idxs1);
-    
-    printf("dist = %.2f\n", graph_->SegDistance(seg_pt_idxs, seg_pt_idxs1));
-    
-    updateGL();
-}
-
-void SceneWidget::slotSetShowPathlets(int state){
-    if (state == Qt::Unchecked)
-        trajectories_->setShowPathlets(false);
-    else
-        trajectories_->setShowPathlets(true);
-    updateGL();
-}
-
-void SceneWidget::slotSetShowPathletDirection(int state){
-    if (state == Qt::Unchecked)
-        trajectories_->setShowPathletDirection(false);
-    else
-        trajectories_->setShowPathletDirection(true);
-    updateGL();
-}
-
-void SceneWidget::slotShowIthPathlet(int ith){
-    trajectories_->showIthPathlet(ith);
-    updateGL();
-}
-
-void SceneWidget::slotGenerateRoads(){
-    trajectories_->generateRoads();
-    updateGL();
-}
-
-void SceneWidget::slotInterpolateSegments(){
-    if (graph_->nVertices() == 0) {
-        QMessageBox msgBox;
-        msgBox.setText("Please initialize graph first.");
-        msgBox.exec();
-        return;
-    }
-    
-    if (trajectories_->nSegments() == 0) {
-        QMessageBox msgBox;
-        msgBox.setText("Please compute segments first.");
-        msgBox.exec();
-        return;
-    }
-    clock_t begin = clock();
-    trajectories_->interpolateSegmentWithGraph(graph_);
-    clock_t end = clock();
-    double elapsed_secs = double(end - begin) / CLOCKS_PER_SEC;
-    printf("%.1f sec elapsed.\n", elapsed_secs);
 }

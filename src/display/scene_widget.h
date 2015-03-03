@@ -9,10 +9,13 @@
 #include <QBasicTimer>
 #include "customized_shader_program.h"
 
+#include "features.h"
+
 using namespace std;
 
 class QMenu;
 class Trajectories;
+class RoadGenerator;
 class Samples;
 class OpenStreetMap;
 class Graph;
@@ -22,10 +25,9 @@ class SceneWidget : public QGLWidget
     Q_OBJECT
     
 public:
-    explicit SceneWidget(QWidget *parent=0, const QGLWidget *shareWidget=0, Qt::WindowFlags f=0);
+    SceneWidget(QWidget *parent=0, const QGLWidget *shareWidget=0, Qt::WindowFlags f=0);
     ~SceneWidget();
     
-    QSize sizeHint() const {return QSize(256, 256);}
     void toggleSelectionMode();
     void enableSelectionMode();
     bool getSelectionMode() { return selection_mode_;}
@@ -33,6 +35,9 @@ public:
     void drawSelectedTraj(vector<int> &idx);
     
 signals:
+    // Mouse Clicked Signal
+    void mouseClickedAt(float &x, float &y); // x, y are converted coordinates using CGAL intersection
+    
     // Trajectories
     void trajFileLoaded(QString &filename, const size_t &numTraj, const size_t &numPoint);
     void nClusterComputed(int &n_cluster);
@@ -45,13 +50,6 @@ signals:
     // Samples
     void newSamplesDrawn(QString &);
     
-    // Segments
-    void newSegmentsComputed(QString &);
-    
-    // Pathlets
-    void updatePathletInfo(QString &);
-    void ithPathletToShowChanged(int &ith);
-    
     // Graph
     void newGraphComputed(QString &);
     
@@ -61,20 +59,13 @@ signals:
     void slotOpenTrajectoriesFromFile(const QString &filename);
     void slotSaveTrajectories(void);
     void slotExtractTrajectories(void);
-    void slotComputePointCloudVariance(void);
-    void slotSetShowDistanceGraph(int state);
-    void slotComputeDistanceGraph();
     void slotSetShowDirection(int state);
-    void slotDBSCAN();
-    void slotSampleDBSCANClusters();
-    void slotSelectClusterAt(int);
-    void slotShowAllClusters();
-    void slotCutTraj();
-    void slotMergePathlet();
-    void slotSelectPathlet();
-    void slotSetPathletThreshold(int);
-    void slotShowAllPathlets();
-    void slotShowPathletAt(int);
+    
+        // Samples
+    void slotSamplePointCloud(void);
+    void slotEnterSampleSelectionMode(void);
+    void slotClearPickedSamples(void);
+    void slotSetShowSamples(int);
     
     // Map
     void slotOpenOsmMap(void);
@@ -82,36 +73,34 @@ signals:
     void slotSetShowMap(int state);
     void slotExtractMapBranchingPoints();
     
-    // Samples
-    void slotSamplePointCloud(void);
-    void slotEnterSampleSelectionMode(void);
-    void slotClearPickedSamples(void);
-    void slotSetShowSamples(int);
-    void slotPickClusterAtIdx(int);
-    void slotExportSamplePathlets();
-    void slotExtractSampleFeatures();
-    
-    // Segments
-    void slotGenerateSegments(void);
-    void slotSampleCoverDistanceChange(double);
-    void slotDrawSegmentAndShortestPathInterpolation(int seg_idx);
-    
-    void slotInterpolateSegments(void);
-    
-    // Pathlets
-    void slotLoadPathlets();
-    void slotSavePathlets();
-    void slotSetShowPathlets(int);
-    void slotSetShowPathletDirection(int);
-    void slotShowIthPathlet(int);
-    void slotGenerateRoads();
+    // Road Generator
+    void slotRGeneratorExportQueryInitFeatures();
+    void slotRGeneratorLoadQueryInitPredictions();
+    void slotRGeneratorAddQueryInitToString();
+    void slotRGeneratorExportQueryQFeatures();
+    void slotRGeneratorLoadQueryQPredictions();
+    void slotRGeneratorLocalAdjust();
+    void slotRGeneratorApplyRules();
+    void slotRGeneratorCleanupSymbols();
     
     // Graph
     void slotInitializeGraph(void);
     void slotSetShowGraph(int state);
     void slotUpdateGraph();
     
+    // Features
+    void slotComputeQueryInitFeaturesFromMap();
+    void slotSaveQueryInitFeatures();
+    void slotExportQueryInitFeatures();
+    void slotLoadQueryInitPredictions();
+    
+    void slotComputeQueryQFeaturesFromMap();
+    void slotSaveQueryQFeatures();
+    void slotExportQueryQFeatures();
+    void slotLoadQueryQPredictions();
+    
     // Others
+    void slotClearAll(void);
     void resetView(void);
     void clearData(void);
     
@@ -120,7 +109,6 @@ protected:
     void mouseMoveEvent(QMouseEvent *event);
     void mouseDoubleClickEvent(QMouseEvent *event);
     void wheelEvent(QWheelEvent *event);
-    
     
     void setXRotation(int angle);
     void setYRotation(int angle);
@@ -133,7 +121,7 @@ protected:
     void resizeGL(int width, int height);
     virtual void prepareContextMenu(QMenu *menu);
     
-    void updateSceneBoundary(QVector4D bound_box_to_insert);
+    void updateSceneBoundary();
     void setSceneBoundary(QVector4D new_bound);
     void updateMaxScaleFactor();
     
@@ -145,9 +133,6 @@ private:
     int xTrans;
     int yTrans;
     
-    // Scene boundary box, [min_easting, max_easting, min_northing, max_northing]
-    QVector4D                           bound_box_;
-    
     // Trajectory container
     Trajectories                        *trajectories_;
     bool                                sample_selection_mode;
@@ -156,9 +141,19 @@ private:
     OpenStreetMap                       *osmMap_;
     bool                                show_map_;
     
+    // Road Generator
+    RoadGenerator                       *road_generator_;
+    
     // Graph container
     bool                                show_graph_;
-    Graph                               *graph_;
+//    Graph                               *graph_;
+    
+    // Feature selection
+    bool                                feature_selection_mode_;
+    FeatureType                         feature_type_;
+    
+    QueryInitFeatureSelector            *query_init_feature_selector_;
+    QueryQFeatureSelector               *query_q_feature_selector_;
     
     // Visualization mode
     bool                                selection_mode_;

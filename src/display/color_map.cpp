@@ -90,7 +90,7 @@ static const double discrete[20][4] = {
     {0.8000,		0.0000,		0.2000, 1.0}
 };
 
-ColorMap::ColorMap() : light_blue_(Color(0.2f, 0.2f, 1.0f, 1.0f)), dark_gray_(Color(0.3, 0.3, 0.3, 1.0f)), light_gray_(Color(0.85f, 0.85f, 0.85f, 1.0f)), orange_(Color(1.0f, 0.83f, 0.0f, 0.3f))
+ColorMap::ColorMap() : light_blue_(Color(0.2f, 0.2f, 1.0f, 1.0f)), dark_gray_(Color(0.3, 0.3, 0.3, 1.0f)), light_gray_(Color(0.85f, 0.85f, 0.85f, 1.0f)), orange_(Color(1.0f, 0.83f, 0.0f, 0.3f)), red_(Color(1.0f, 0.0f, 0.0f, 1.0f)), blue_(Color(0.0f, 0.0f, 1.0f, 1.0f)), green_(Color(0.0f, 1.0f, 0.0f, 1.0f))
 {
     for (size_t i = 0, iEnd = 64; i < iEnd; ++ i) {
         continuous_.push_back(Color(continuous[i][0], continuous[i][1], continuous[i][2], continuous[i][3]));
@@ -101,6 +101,10 @@ ColorMap::ColorMap() : light_blue_(Color(0.2f, 0.2f, 1.0f, 1.0f)), dark_gray_(Co
     }
     
     return;
+}
+
+ColorMap::~ColorMap(void){
+    
 }
 
 const Color& ColorMap::getNamedColor(NamedColor named_color)
@@ -117,6 +121,12 @@ const Color& ColorMap::getNamedColor(NamedColor named_color)
             break;
         case ORANGE:
             return orange_;
+        case GREEN:
+            return green_;
+        case RED:
+            return red_;
+        case BLUE:
+            return blue_;
         default:
             return light_blue_;
             break;

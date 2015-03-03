@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 2.8.11)
 
 # OpenCV
-find_package(OpenCV REQUIRED)
+#find_package(OpenCV REQUIRED)
 
 # PCL
 find_package(PCL REQUIRED common io)
@@ -36,6 +36,9 @@ set(PROJ_LIBRARIES "/usr/local/lib/libproj.dylib")
 find_package(BZIP2 REQUIRED)
 include_directories(${BZIP_INCLUDE_DIRS})
 include_directories("osmium/include")
+
+# Dlib
+include(pkgs/dlib-18.14/dlib/cmake)
 
 # Qt 
 set(CMAKE_AUTOMOC ON)
@@ -101,10 +104,12 @@ ENDIF (${CMAKE_BUILD_TOOL} MATCHES "devenv")
 set(exe_name junction_reconstruction)
 add_executable(${exe_name} ${ui_srcs} ${moc_srcs} ${resource_srcs} ${srcs} ${incs})
 target_link_libraries(${exe_name} 
-    ${OpenCV_LIBS}
+    #${OpenCV_LIBS}
     pcl_wrapper
     ${CGAL_LIBRARIES}
     ${OPENGL_LIBRARIES}
+    #${OpenCV_LIBS}
+    dlib
     Qt5::Core Qt5::Widgets Qt5::OpenGL Qt5::Xml Qt5::Concurrent
     ${PROTOBUF_LIBRARIES}
     ${EXPAT_LIBRARIES}

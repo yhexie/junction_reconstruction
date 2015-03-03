@@ -28,7 +28,6 @@ OsmWay::~OsmWay(void){
 OpenStreetMap::OpenStreetMap(QObject *parent) : Renderable(parent),
 map_point_cloud_(new PclPointCloud), map_search_tree_(new pcl::search::FlannSearch<PclPoint>(false))
 {
-    bound_box_ = QVector4D(1e10, -1e10, 1e10, -1e10);
     is_empty_ = true;
     normalized_vertices_.clear();
     vertex_colors_.clear();
@@ -37,6 +36,7 @@ map_point_cloud_(new PclPointCloud), map_search_tree_(new pcl::search::FlannSear
     ways_.clear();
     nodes_.clear();
     node_idx_map_.clear();
+    map_point_cloud_->clear();
 }
 
 OpenStreetMap::~OpenStreetMap(){
@@ -46,41 +46,33 @@ bool OpenStreetMap::loadOSM(const string &filename){
     Osmium::OSMFile infile(filename.c_str());
     MyShapeHandler handler(this);
     ways_.clear();
+    
     Osmium::Input::read(infile, handler);
     google::protobuf::ShutdownProtobufLibrary();
-    bound_box_ = QVector4D(1e10, -1e10, 1e10, -1e10);
-    updateBoundBox();
-    printf("bound box: min_e=%.2f, max_e=%.2f, min_n=%.2f, max_n=%.2f\n", bound_box_[0], bound_box_[1], bound_box_[2], bound_box_[3]);
-    is_empty_ = false;
     
-    // Compute map point cloud with 10m accuracy
-    //return true;
-    
-    PclPoint point;
-    point.setNormal(0, 0, 1);
+    QVector4D bound_box = QVector4D(1e10, -1e10, 1e10, -1e10);
     for (size_t i = 0; i < ways_.size(); ++i) {
         OsmWay &aWay = ways_[i];
-        if (aWay.eastings().size() == 0)
-            continue;
-        for (int j = 0; j < aWay.eastings().size()-1; ++j) {
-            Vector2d start(aWay.eastings()[j], aWay.northings()[j]);
-            Vector2d end(aWay.eastings()[j+1], aWay.northings()[j+1]);
-            Vector2d vec = end - start;
-            float length = vec.norm();
-            vec.normalize();
-            int n_pt = ceil(length / 5.0f) + 1;
-            if (n_pt < 2) {
-                n_pt = 2;
+        for (size_t j = 0; j < aWay.eastings().size(); ++j) {
+            if (aWay.eastings()[j] < bound_box[0]) {
+                bound_box[0] = aWay.eastings()[j];
             }
-            float delta_length = length / (n_pt - 1);
-            for (int k = 0; k < n_pt; ++k) {
-                Vector2d pt = start + vec * k * delta_length;
-                point.setCoordinate(pt.x(), pt.y(), 0.0f);
-                map_point_cloud_->push_back(point);
+            if (aWay.eastings()[j] > bound_box[1]){
+                bound_box[1] = aWay.eastings()[j];
+            }
+            if (aWay.northings()[j] < bound_box[2]) {
+                bound_box[2] = aWay.northings()[j];
+            }
+            if (aWay.northings()[j] > bound_box[3]){
+                bound_box[3] = aWay.northings()[j];
             }
         }
     }
-    map_search_tree_->setInputCloud(map_point_cloud_);
+    
+    SceneConst::getInstance().updateBoundBox(bound_box);
+   
+    is_empty_ = false;
+    checkEquivalency();
     
     return true;
 }
@@ -148,27 +140,8 @@ void OpenStreetMap::pushAWay(OsmWay &aWay){
     ways_.push_back(aWay);
 }
 
-void OpenStreetMap::updateBoundBox(){
-    for (size_t i = 0; i < ways_.size(); ++i) {
-        OsmWay &aWay = ways_[i];
-        for (size_t j = 0; j < aWay.eastings().size(); ++j) {
-            if (aWay.eastings()[j] < bound_box_[0]) {
-                bound_box_[0] = aWay.eastings()[j];
-            }
-            if (aWay.eastings()[j] > bound_box_[1]){
-                bound_box_[1] = aWay.eastings()[j];
-            }
-            if (aWay.northings()[j] < bound_box_[2]) {
-                bound_box_[2] = aWay.northings()[j];
-            }
-            if (aWay.northings()[j] > bound_box_[3]){
-                bound_box_[3] = aWay.northings()[j];
-            }
-        }
-    }
-}
-
-void OpenStreetMap::prepareForVisualization(QVector4D bound_box){
+void OpenStreetMap::prepareForVisualization(){
+    QVector4D bound_box = SceneConst::getInstance().getBoundBox();
     float delta_x = bound_box[1] - bound_box[0];
     float delta_y = bound_box[3] - bound_box[2];
     if (delta_x < 0 || delta_y < 0) {
@@ -194,8 +167,10 @@ void OpenStreetMap::prepareForVisualization(QVector4D bound_box){
         OsmWay &aWay = ways_[i];
         Color vertex_color = getWayColor(aWay);
         way_widths_[i] = getWayWidth(aWay);
+        
         vector<unsigned> &way_idx = way_idxs_[i];
         way_idx.resize(aWay.eastings().size());
+        
         for (size_t j = 0; j < aWay.eastings().size(); ++j) {
             float n_x = (aWay.eastings()[j] - center_x) / scale_factor_;
             float n_y = (aWay.northings()[j] - center_y) / scale_factor_;
@@ -256,7 +231,7 @@ Color OpenStreetMap::getWayColor(OsmWay &aWay){
             return Color(1.0f, 0.7f, 0.4f, 1.0f);
         case TERTIARY:
         case TERTIARY_LINK:
-            return Color(1.0f, 0.4f, 0.4f, 1.0f);
+            return Color(1.0f, 0.7f, 0.4f, 1.0f);
         default:
             return Color(0.7f, 0.7f, 0.7f, 1.0f);
     }
@@ -355,6 +330,10 @@ void MyShapeHandler::way(const boost::shared_ptr<Osmium::OSM::Way> &way){
     handler_cfw->way(way);
     Osmium::OSM::WayNodeList way_nodes = way->nodes();
     Osmium::OSM::WayNodeList::iterator it;
+    
+    if(way_nodes.size() == 0){
+        return;
+    }
     OsmWay new_way;
     
     // Process Way Tags
@@ -403,10 +382,14 @@ void MyShapeHandler::way(const boost::shared_ptr<Osmium::OSM::Way> &way){
         new_way.setOneway(true);
     }
     
+    int current_way_id = osm_ptr_->ways().size();
+    
     // Process Way Geometry
     Projector &converter = Projector::getInstance();
+    
     new_way.northings().resize(way_nodes.size());
     new_way.eastings().resize(way_nodes.size());
+    new_way.node_ids().resize(way_nodes.size());
     int node_idx = 0;
     for (it = way_nodes.begin(); it != way_nodes.end(); ++it) {
         float x;
@@ -419,6 +402,7 @@ void MyShapeHandler::way(const boost::shared_ptr<Osmium::OSM::Way> &way){
                 delta_degree = 1;
             }
             osm_ptr_->nodes()[tmp_node_idx].degree() += delta_degree;
+            osm_ptr_->nodes()[tmp_node_idx].way_ids().push_back(current_way_id);
         }
         else{
             // Add a new nodes
@@ -427,11 +411,14 @@ void MyShapeHandler::way(const boost::shared_ptr<Osmium::OSM::Way> &way){
             if (node_idx == 0 || node_idx == way_nodes.size() - 1){
                 delta_degree = 1;
             }
+            tmp_node_idx = osm_ptr_->nodes().size() - 1;
             osm_ptr_->nodes().back().degree() += delta_degree;
+            osm_ptr_->nodes().back().way_ids().push_back(current_way_id);
         }
         converter.convertLatlonToXY(it->lat(), it->lon(), x, y);
         new_way.eastings()[node_idx] = x;
         new_way.northings()[node_idx] = y;
+        new_way.node_ids()[node_idx] = tmp_node_idx;
         ++node_idx;
     }
     
@@ -439,11 +426,92 @@ void MyShapeHandler::way(const boost::shared_ptr<Osmium::OSM::Way> &way){
 }
 
 void OpenStreetMap::clearData(){
-    bound_box_ = QVector4D(1e10, -1e10, 1e10, -1e10);
     is_empty_ = true;
     normalized_vertices_.clear();
     vertex_colors_.clear();
     way_idxs_.clear();
     way_widths_.clear();
     ways_.clear();
+}
+
+void OpenStreetMap::updateMapSearchTree(float grid_size){
+    map_point_cloud_->clear();
+    
+    PclPoint point;
+    point.setNormal(0, 0, 1);
+    for (size_t i = 0; i < ways_.size(); ++i) {
+        OsmWay &aWay = ways_[i];
+        if (aWay.eastings().size() == 0)
+            continue;
+        for (int j = 0; j < aWay.eastings().size()-1; ++j) {
+            Vector2d start(aWay.eastings()[j], aWay.northings()[j]);
+            Vector2d end(aWay.eastings()[j+1], aWay.northings()[j+1]);
+            Vector2d vec = end - start;
+            float length = vec.norm();
+            vec.normalize();
+            float heading = acos(vec[0]) * 180.0f / PI;
+            if (vec[1] < 0) {
+                heading = 360.0f - heading;
+            }
+            
+            int n_pt = ceil(length / grid_size);
+            float delta_length = length / n_pt;
+            for (int k = 0; k < n_pt; ++k) {
+                Vector2d pt = start + vec * k * delta_length;
+                point.setCoordinate(pt.x(), pt.y(), 0.0f);
+                point.id_trajectory = i; // This will record the osmWay id
+                
+                int node_degree = 2;
+                if(k == 0){
+                    node_degree = nodes_[aWay.node_ids()[j]].degree();
+                }
+                point.id_sample = node_degree;
+                point.head = floor(heading);
+                
+                map_point_cloud_->push_back(point);
+            }
+        }
+        // Insert the last point
+        int last_pt_id = aWay.eastings().size() - 1;
+        Vector2d start(aWay.eastings()[last_pt_id-1], aWay.northings()[last_pt_id-1]);
+        Vector2d end(aWay.eastings()[last_pt_id], aWay.northings()[last_pt_id]);
+        Vector2d vec = end - start;
+        vec.normalize();
+        float heading = acos(vec[0]) * 180.0f / PI;
+        if (vec[1] < 0) {
+            heading = 360.0f - heading;
+        }
+        
+        point.setCoordinate(aWay.eastings()[last_pt_id], aWay.northings()[last_pt_id], 0.0f);
+        point.id_trajectory = i; // This will record the osmWay id
+        point.id_sample = nodes_[aWay.node_ids()[last_pt_id]].degree();
+        point.head = floor(heading);
+        
+        map_point_cloud_->push_back(point);
+    }
+    map_search_tree_->setInputCloud(map_point_cloud_);
+}
+
+bool OpenStreetMap::twoWaysEquivalent(int i, int j){
+    if(equivalent_ways_.find(pair<int, int>(i, j)) != equivalent_ways_.end()){
+        return true;
+    }
+    if(equivalent_ways_.find(pair<int, int>(j, i)) != equivalent_ways_.end()){
+        return true;
+    }
+    
+    return false;
+}
+
+void OpenStreetMap::checkEquivalency(){
+    equivalent_ways_.clear();
+    for(int i = 0; i < nodes_.size(); ++i){
+        OsmNode& this_node = nodes_[i];
+        if(this_node.degree() == 2){
+            if(this_node.way_ids().size() == 2){
+                equivalent_ways_.insert(pair<int, int>(this_node.way_ids()[0], this_node.way_ids()[1]));
+                equivalent_ways_.insert(pair<int, int>(this_node.way_ids()[1], this_node.way_ids()[0]));
+            }
+        }
+    }
 }

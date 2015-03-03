@@ -13,21 +13,6 @@
 class SceneWidget;
 class QFileSystemModel;
 
-class TrajListModel : public QAbstractListModel{
-    Q_OBJECT
-public:
-    TrajListModel(QObject *parent = 0);
-    
-    int rowCount(const QModelIndex &parent = QModelIndex()) const;
-    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const;
-
-    public slots:
-    void setNumTraj(int number);
-    
-private:
-    int trajCount;
-};
-
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
@@ -44,14 +29,13 @@ public:
 	void showStatus(const std::string& status, int timeout=0);
     void showInStatusBar(const QString &str);
     
-    double getDBSCANEpsValue() { return ui_->dbscanEps->value(); }
-    int getDBSCANMinPtsValue() { return ui_->dbscanMinPts->value(); }
-    
 	const std::string& getWorkspace(void) const {return workspace_;}
     
     public slots:
 	bool slotShowYesNoMessageBox(const std::string& text, const std::string& informative_text);
     void slotTrajSelectionChanged();
+    
+    Ui::MainWindowClass* getUi() { return ui_; }
     
 signals:
     void keyDownPressed(void);
@@ -76,11 +60,6 @@ private slots:
     void slotTrajFileLoaded(QString &filename, const size_t &numTraj, const size_t &numPoint);
     void slotOsmFileLoaded(QString &filename);
     void slotNewSamplesDrawn(QString &);
-    void slotNewPathletsComputed(QString &);
-    void slotNewGraphComputed(QString &);
-    void slotSetNPathlets(int &n_pathlets);
-    void slotSetIthPathletToShow(int &value);
-    void slotSetNDBSCANClusters(int &n_dbscan_cluster);
     void slotSetUTMZone(int);
     
 private:
@@ -88,8 +67,8 @@ private:
     void saveSettings();
     void saveStatusLog();
     
-    TrajListModel                   *trajListModel;
-    Ui::MainWindowClass             *ui_;
+    Ui::MainWindowClass*            ui_;
+    
     std::string                     workspace_;
 };
 

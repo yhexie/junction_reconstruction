@@ -12,6 +12,7 @@
 
 #include "renderable.h"
 #include "common.h"
+#include <set>
 #include "color_map.h"
 using namespace std;
 
@@ -41,10 +42,12 @@ public:
     double lat() {return lat_;}
     double lon() {return lon_;}
     int &degree() {return degree_;}
+    vector<int>& way_ids() { return way_ids_; }
 private:
     double lat_;
     double lon_;
-    int     degree_;
+    int    degree_;
+    vector<int> way_ids_;
 };
 
 class OsmWay {
@@ -53,6 +56,7 @@ public:
     ~OsmWay(void);
     vector<double> &eastings() {return eastings_;}
     vector<double> &northings() {return northings_;}
+    vector<int>    &node_ids() { return node_ids_; }
     
     void setWayType(WAYTYPE type) {way_type_ = type;}
     bool isOneway() {return is_oneway_;}
@@ -61,6 +65,7 @@ public:
 private:
     vector<double> eastings_;
     vector<double> northings_;
+    vector<int>    node_ids_;
     WAYTYPE way_type_;
     bool is_oneway_;
 };
@@ -70,7 +75,7 @@ public:
     OpenStreetMap(QObject *parent);
     ~OpenStreetMap();
     
-    void prepareForVisualization(QVector4D bound_box);
+    void prepareForVisualization();
     Color getWayColor(OsmWay &aWay);
     int getWayWidth(OsmWay &aWay);
     bool isEmpty() const {return is_empty_;}
@@ -79,18 +84,22 @@ public:
     bool extractMapBranchingPoints(const string &filename);
     int findNodeId(uint64_t ref_id);
     bool insertNode(uint64_t ref_id, double lat, double lon);
-    vector<OsmNode> &nodes() { return nodes_; }
     int currentWayId() { return ways_.size(); }
     
     void pushAWay(OsmWay &aWay);
     void updateBoundBox();
-    const QVector4D&    BoundBox(void) const {return bound_box_;}
     void clearData(void);
     
-    PclSearchTree::Ptr  &map_search_tree() {return map_search_tree_;}
+    void updateMapSearchTree(float grid_size = 10.0f);
+    
+    PclPointCloud::Ptr& map_point_cloud() { return map_point_cloud_; }
+    PclSearchTree::Ptr& map_search_tree() {return map_search_tree_;}
+    vector<OsmNode>& nodes() { return nodes_; }
+    vector<OsmWay>& ways() { return ways_; }
+    bool twoWaysEquivalent(int i, int j);
+    void checkEquivalency();
     
 private:
-    QVector4D                   bound_box_;
     PclPointCloud::Ptr          map_point_cloud_;
     PclSearchTree::Ptr          map_search_tree_;
     bool                        is_empty_;
@@ -101,11 +110,12 @@ private:
     vector<vector<unsigned> >   direction_idxs_;
     
     vector<vector<unsigned> >   way_idxs_;
-    vector<int>            way_widths_;
+    vector<int>                 way_widths_;
    
     map<uint64_t, int>          node_idx_map_;
     vector<OsmNode>             nodes_;
     vector<OsmWay>              ways_;
+    set<pair<int, int>>         equivalent_ways_; // ways join with degree two node
 };
 
 class MyShapeHandler : public Osmium::Handler::Base{
