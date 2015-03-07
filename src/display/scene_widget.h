@@ -74,30 +74,26 @@ signals:
     void slotExtractMapBranchingPoints();
     
     // Road Generator
-    void slotRGeneratorExportQueryInitFeatures();
-    void slotRGeneratorLoadQueryInitPredictions();
-    void slotRGeneratorAddQueryInitToString();
-    void slotRGeneratorExportQueryQFeatures();
-    void slotRGeneratorLoadQueryQPredictions();
-    void slotRGeneratorLocalAdjust();
-    void slotRGeneratorApplyRules();
-    void slotRGeneratorCleanupSymbols();
-    
-    // Graph
-    void slotInitializeGraph(void);
-    void slotSetShowGraph(int state);
-    void slotUpdateGraph();
+    void slotRoadGeneratorLoadQueryInitClassifier();
+    void slotRoadGeneratorApplyQueryInitClassifier();
+    void slotRoadGeneratorLoadQueryQClassifier();
+    void slotRoadGeneratorAddInitialRoad();
+    void slotRoadGeneratorDevelopRoadNetwork();
+    void slotRoadGeneratorLocalAdjustment();
+    void slotRoadGeneratorMCMCOptimization();
     
     // Features
-    void slotComputeQueryInitFeaturesFromMap();
-    void slotSaveQueryInitFeatures();
-    void slotExportQueryInitFeatures();
-    void slotLoadQueryInitPredictions();
+    void slotExtractQueryInitTrainingSamplesFromMap();
+    void slotLoadQueryInitTrainingSamples();
+    void slotSaveQueryInitTrainingSamples();
+    void slotTrainQueryInitClassifier();
+    void slotSaveQueryInitClassifer();
     
-    void slotComputeQueryQFeaturesFromMap();
-    void slotSaveQueryQFeatures();
-    void slotExportQueryQFeatures();
-    void slotLoadQueryQPredictions();
+    void slotExtractQueryQTrainingSamplesFromMap();
+    void slotLoadQueryQTrainingSamples();
+    void slotSaveQueryQTrainingSamples();
+    void slotTrainQueryQClassifier();
+    void slotSaveQueryQClassifer();
     
     // Others
     void slotClearAll(void);
@@ -146,11 +142,8 @@ private:
     
     // Graph container
     bool                                show_graph_;
-//    Graph                               *graph_;
-    
     // Feature selection
     bool                                feature_selection_mode_;
-    FeatureType                         feature_type_;
     
     QueryInitFeatureSelector            *query_init_feature_selector_;
     QueryQFeatureSelector               *query_q_feature_selector_;

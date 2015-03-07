@@ -18,7 +18,7 @@ public:
         return singleton_;
     }
     
-    typedef enum {LIGHT_BLUE, DARK_GRAY, LIGHT_GRAY, ORANGE, RED, BLUE, GREEN} NamedColor;
+    typedef enum {LIGHT_BLUE, DARK_GRAY, LIGHT_GRAY, ORANGE, RED, BLUE, GREEN, ONEWAY_COLOR, TWOWAY_COLOR, NON_ROAD_COLOR} NamedColor;
     
     /* more (non-static) functions here */
     const Color& getNamedColor(NamedColor named_color);
@@ -39,6 +39,10 @@ private:
     Color red_;
     Color blue_;
     Color green_;
+    
+    Color oneway_color_;
+    Color twoway_color_;
+    Color non_road_color_;
     std::vector<Color> discrete_;
 };
 

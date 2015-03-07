@@ -140,28 +140,27 @@ void MainWindow::init(void)
     connect(this, SIGNAL(newOsmFileSelected(const QString &)), ui_->scene_widget, SLOT(slotOpenOsmMapFromFile(const QString &)));
     connect(ui_->scene_widget, SIGNAL(osmFileLoaded(QString &)), this, SLOT(slotOsmFileLoaded(QString &)));
     
-    // Generator View
-    connect(ui_->r_generator_export_query_init_features, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRGeneratorExportQueryInitFeatures()));
-    connect(ui_->r_generator_load_query_init_predictions, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRGeneratorLoadQueryInitPredictions()));
-    connect(ui_->r_generator_add_query_init_to_string, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRGeneratorAddQueryInitToString()));
-    
-    connect(ui_->r_generator_export_query_q_features, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRGeneratorExportQueryQFeatures()));
-    connect(ui_->r_generator_load_query_q_predictions, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRGeneratorLoadQueryQPredictions()));
-    connect(ui_->r_generator_local_adjust, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRGeneratorLocalAdjust()));
-    connect(ui_->r_generator_apply_rule, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRGeneratorApplyRules()));
+    // Road Generator View
+    connect(ui_->roadGeneratorLoadQueryInitClassifier, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorLoadQueryInitClassifier()));
+    connect(ui_->roadGeneratorApplyQueryInitClassifier, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorApplyQueryInitClassifier()));
+    connect(ui_->roadGeneratorLoadQueryQClassifier, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorLoadQueryQClassifier()));
+    connect(ui_->roadGeneratorAddInitialRoad, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorAddInitialRoad()));
+    connect(ui_->roadGeneratorDevelopRoadNetwork, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorDevelopRoadNetwork()));
+    connect(ui_->roadGeneratorLocalAdjustment, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorLocalAdjustment()));
+    connect(ui_->roadGeneratorMCMCOptimization, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorMCMCOptimization()));
     
     // Feature View
-    connect(ui_->saveQueryQFeatures, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotSaveQueryQFeatures()));
+    connect(ui_->extractQueryInitSamplesFromMap, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotExtractQueryInitTrainingSamplesFromMap()));
+    connect(ui_->loadQueryInitTrainingSamples, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotLoadQueryInitTrainingSamples()));
+    connect(ui_->saveQueryInitSamples, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotSaveQueryInitTrainingSamples()));
+    connect(ui_->trainQueryInitClassifier, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotTrainQueryInitClassifier()));
+    connect(ui_->saveQueryInitClassifier, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotSaveQueryInitClassifer()));
     
-    connect(ui_->saveQueryInitFeatures, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotSaveQueryInitFeatures()));
-    connect(ui_->queryInitFeatureFromMap, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotComputeQueryInitFeaturesFromMap()));
-    connect(ui_->exportQueryInitFeatures, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotExportQueryInitFeatures()));
-    connect(ui_->loadQueryInitPredictions, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotLoadQueryInitPredictions()));
-   
-    connect(ui_->queryQFeatureFromMap, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotComputeQueryQFeaturesFromMap()));
-    connect(ui_->exportQueryQFeatures, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotExportQueryQFeatures()));
-    connect(ui_->loadQueryQPredictions, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotLoadQueryQPredictions()));
-    
+    connect(ui_->extractQueryQSamplesFromMap, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotExtractQueryQTrainingSamplesFromMap()));
+    connect(ui_->loadQueryQTrainingSamples, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotLoadQueryQTrainingSamples()));
+    connect(ui_->saveQueryQSamples, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotSaveQueryQTrainingSamples()));
+    connect(ui_->trainQueryQClassifier, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotTrainQueryQClassifier()));
+    connect(ui_->saveQueryQClassifier, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotSaveQueryQClassifer()));
     
     // Clear All
     connect(ui_->actionClearAll, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotClearAll()));

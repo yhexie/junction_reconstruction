@@ -364,6 +364,21 @@ void SceneWidget::updateMaxScaleFactor(){
     maxScaleFactor_ = delta_boundary / 20.0;
 }
 
+void SceneWidget::toggleTrajectories(void)
+{
+    trajectories_->toggleRenderMode();
+    updateGL();
+    return;
+}
+
+/*
+        GPS Trajectories
+ */
+void SceneWidget::drawSelectedTraj(vector<int> &idx){
+    trajectories_->setSelectedTrajectories(idx);
+    enableSelectionMode();
+}
+
 void SceneWidget::slotOpenTrajectories(void)
 {
     MainWindow* main_window = MainWindow::getInstance();
@@ -415,175 +430,44 @@ void SceneWidget::slotSaveTrajectories(void)
 	return;
 }
 
-void SceneWidget::drawSelectedTraj(vector<int> &idx){
-    trajectories_->setSelectedTrajectories(idx);
-    enableSelectionMode();
-}
-
-
-void SceneWidget::slotOpenOsmMap(void)
-{
+void SceneWidget::slotExtractTrajectories(void){
+    if (osmMap_->isEmpty()){
+        QMessageBox msgBox;
+        msgBox.setText("Please load an openstreetmap first.");
+        msgBox.exec();
+        return;
+    }
     MainWindow* main_window = MainWindow::getInstance();
     
-	QString filename = QFileDialog::getOpenFileName(main_window,
-                                                    "Open OpenStreetMap",
-                                                    default_map_dir.c_str(),
-                                                    "Trajectories (*.osm)");
+    QStringList filenames = QFileDialog::getOpenFileNames(main_window, "Open Trajectories",
+                                                          main_window->getWorkspace().c_str(), "Trajectories (*.pbf)");
+    if (filenames.isEmpty())
+        return;
     
-	if (filename.isEmpty())
-		return;
+    osmMap_->updateMapSearchTree(10.0f); // update the map search tree with 10.0meter grid
     
-    if (osmMap_->loadOSM(filename.toStdString()))
-	{
-        updateSceneBoundary();
-        updateGL();
-        emit osmFileLoaded(filename);
-	}
-	
-	return;
+    QVector4D bound_box = SceneConst::getInstance().getBoundBox();
+    trajectories_->extractFromFiles(filenames, bound_box, osmMap_->map_search_tree());
+    
+    SceneConst::getInstance().setBoundBox(bound_box);
+    
+    trajectories_->prepareForVisualization();
+    osmMap_->prepareForVisualization();
+    
+    updateGL();
 }
 
-void SceneWidget::slotOpenOsmMapFromFile(const QString &filename){
-    if (filename.isEmpty())
-		return;
-    
-    clearData();
-    if (osmMap_->loadOSM(filename.toStdString()))
-	{
-        updateGL();
-	}
-}
-
-void SceneWidget::slotSetShowMap(int state){
+void SceneWidget::slotSetShowDirection(int state){
     if (state == Qt::Unchecked)
-        show_map_ = false;
+        trajectories_->setShowDirection(false);
     else
-        show_map_ = true;
+        trajectories_->setShowDirection(true);
     updateGL();
 }
 
-void SceneWidget::slotExtractMapBranchingPoints(){
-        MainWindow* main_window = MainWindow::getInstance();
-        
-        QString filename = QFileDialog::getSaveFileName(main_window, "Save to file",
-                                                        main_window->getWorkspace().c_str(), "Trajectories (*.txt)");
-        if (filename.isEmpty())
-            return;
-        
-        osmMap_->extractMapBranchingPoints(filename.toStdString());
-        
-        return;
-}
-
-void SceneWidget::slotRGeneratorExportQueryInitFeatures(){
-    if (trajectories_->samples()->size() == 0){
-        QMessageBox msgBox;
-        msgBox.setText("Please sample point cloud first.");
-        msgBox.exec();
-        return;
-    }
-    
-    MainWindow* main_window = MainWindow::getInstance();
-    
-    QString filename = QFileDialog::getSaveFileName(main_window,
-                                                    "Road Generator: Export ?I Features",
-                                                    default_python_test_dir.c_str(),
-                                                    "*.txt");
-    if (filename.isEmpty())
-        return;
-   
-    float sigma = main_window->getUi()->queryInitSearchRadius->value();
-    road_generator_->sparseVoting(sigma);
-    
-    road_generator_->exportQueryInitFeatures(sigma, filename.toStdString());
-    
-    updateGL();
-}
-
-void SceneWidget::slotRGeneratorLoadQueryInitPredictions(){
-    MainWindow* main_window = MainWindow::getInstance();
-    
-    QString filename = QFileDialog::getOpenFileName(main_window,
-                                                    "Road Generator: load ?I Prediction",
-                                                    default_python_test_dir.c_str(),
-                                                    "*.txt");
-    if (filename.isEmpty())
-        return;
-    
-    if (road_generator_->loadQueryInitFeatures(filename.toStdString()))
-    {
-        updateGL();
-    }
-    
-    return;
-    
-}
-
-void SceneWidget::slotRGeneratorAddQueryInitToString(){
-    if(road_generator_->addQueryInitToString()){
-        updateGL();
-    }
-}
-
-void SceneWidget::slotRGeneratorExportQueryQFeatures(){
-    if (trajectories_->samples()->size() == 0){
-        QMessageBox msgBox;
-        msgBox.setText("Please sample point cloud first.");
-        msgBox.exec();
-        return;
-    }
-    
-    MainWindow* main_window = MainWindow::getInstance();
-    
-    QString filename = QFileDialog::getSaveFileName(main_window,
-                                                    "Road Generator: Export ?Q Features",
-                                                    default_python_test_dir.c_str(),
-                                                    "*.txt");
-    if (filename.isEmpty())
-        return;
-    
-    road_generator_->exportQueryQFeatures(filename.toStdString());
-    
-    updateGL();
-}
-
-void SceneWidget::slotRGeneratorLoadQueryQPredictions(){
-    MainWindow* main_window = MainWindow::getInstance();
-    
-    QString filename = QFileDialog::getOpenFileName(main_window,
-                                                    "Road Generator: load ?I Prediction",
-                                                    default_python_test_dir.c_str(),
-                                                    "*.txt");
-    if (filename.isEmpty())
-        return;
-    
-    if (road_generator_->loadQueryQPredictions(filename.toStdString()))
-    {
-        updateGL();
-    }
-    
-    return;
-}
-
-void SceneWidget::slotRGeneratorLocalAdjust(){
-    road_generator_->localAdjustment();
-}
-
-void SceneWidget::slotRGeneratorApplyRules(){
-    road_generator_->applyRules();
-    updateGL();
-}
-
-void SceneWidget::slotRGeneratorCleanupSymbols(){
-}
-
-void SceneWidget::toggleTrajectories(void)
-{
-    trajectories_->toggleRenderMode();
-    updateGL();
-	return;
-}
-
+/*
+        Samples
+ */
 void SceneWidget::slotSamplePointCloud(void){
     if (trajectories_->isEmpty()){
         QMessageBox msgBox;
@@ -597,13 +481,22 @@ void SceneWidget::slotSamplePointCloud(void){
     if (ok) {
         trajectories_->singleDirectionSamplePointCloud(static_cast<float>(d));
         trajectories_->prepareForVisualization();
-       
+        
         // Output information
         QString str;
         QTextStream(&str) <<trajectories_->samples()->size() << " samples. Grid size: "<<d << " m.";
         emit newSamplesDrawn(str);
         updateGL();
     }
+}
+
+void SceneWidget::slotEnterSampleSelectionMode(void){
+    sample_selection_mode = true;
+}
+
+void SceneWidget::slotClearPickedSamples(void){
+    trajectories_->clearPickedSamples();
+    updateGL();
 }
 
 void SceneWidget::slotSetShowSamples(int state){
@@ -614,6 +507,325 @@ void SceneWidget::slotSetShowSamples(int state){
     updateGL();
 }
 
+/*
+         Open Street Maps
+ */
+void SceneWidget::slotOpenOsmMap(void)
+{
+    MainWindow* main_window = MainWindow::getInstance();
+    
+    QString filename = QFileDialog::getOpenFileName(main_window,
+                                                    "Open OpenStreetMap",
+                                                    default_map_dir.c_str(),
+                                                    "Trajectories (*.osm)");
+    
+    if (filename.isEmpty())
+        return;
+    
+    if (osmMap_->loadOSM(filename.toStdString()))
+    {
+        updateSceneBoundary();
+        updateGL();
+        emit osmFileLoaded(filename);
+    }
+    
+    return;
+}
+
+void SceneWidget::slotOpenOsmMapFromFile(const QString &filename){
+    if (filename.isEmpty())
+        return;
+    
+    clearData();
+    if (osmMap_->loadOSM(filename.toStdString()))
+    {
+        updateGL();
+    }
+}
+
+void SceneWidget::slotSetShowMap(int state){
+    if (state == Qt::Unchecked)
+        show_map_ = false;
+    else
+        show_map_ = true;
+    updateGL();
+}
+
+void SceneWidget::slotExtractMapBranchingPoints(){
+    MainWindow* main_window = MainWindow::getInstance();
+    
+    QString filename = QFileDialog::getSaveFileName(main_window, "Save to file",
+                                                    main_window->getWorkspace().c_str(), "Trajectories (*.txt)");
+    if (filename.isEmpty())
+        return;
+    
+    osmMap_->extractMapBranchingPoints(filename.toStdString());
+    
+    return;
+}
+
+/*
+        Road Generator
+ */
+void SceneWidget::slotRoadGeneratorLoadQueryInitClassifier(){
+    MainWindow* main_window = MainWindow::getInstance();
+    
+    QString filename = QFileDialog::getOpenFileName(main_window,
+                                                    "Open Query Init Classifier",
+                                                    default_python_test_dir.c_str(),
+                                                    " (*.dat)");
+    if (filename.isEmpty())
+        return;
+    
+    QString str;
+    if (road_generator_->loadQueryInitClassifer(filename.toStdString()))
+    {
+        QTextStream(&str) << "Query Init samples loaded from " << filename;
+    }
+    else{
+        QTextStream(&str) << "Error occured when loading query init samples from " << filename;
+    }
+    
+    main_window->getUi()->roadGeneratorQueryInitClassifierInfo->setText(str);
+}
+
+void SceneWidget::slotRoadGeneratorApplyQueryInitClassifier(){
+    if (trajectories_->isEmpty()){
+        QMessageBox msgBox;
+        msgBox.setText("Please load trajectory file.");
+        msgBox.exec();
+        return;
+    }
+    
+    if (trajectories_->samples()->size() == 0){
+        QMessageBox msgBox;
+        msgBox.setText("Please sample GPS point cloud first.");
+        msgBox.exec();
+        return;
+    }
+    
+    if (!road_generator_->hasValidQueryInitDecisionFunction()){
+        QMessageBox msgBox;
+        msgBox.setText("Please load query init classifer first.");
+        msgBox.exec();
+        return;
+    }
+    
+    MainWindow* main_window = MainWindow::getInstance();
+    float sigma = main_window->getUi()->queryInitSearchRadius->value();
+    
+    road_generator_->applyQueryInitClassifier(sigma);
+    
+    updateGL();
+}
+
+void SceneWidget::slotRoadGeneratorLoadQueryQClassifier(){
+    
+}
+
+void SceneWidget::slotRoadGeneratorAddInitialRoad(){
+    if (trajectories_->isEmpty()){
+        QMessageBox msgBox;
+        msgBox.setText("Please load trajectory file.");
+        msgBox.exec();
+        return;
+    }
+    
+    if (trajectories_->samples()->size() == 0){
+        QMessageBox msgBox;
+        msgBox.setText("Please sample GPS point cloud.");
+        msgBox.exec();
+        return;
+    }
+    
+    if (!road_generator_->hasValidQueryInitDecisionFunction()){
+        QMessageBox msgBox;
+        msgBox.setText("Please load query init classifer.");
+        msgBox.exec();
+        return;
+    }
+    
+    if (road_generator_->nQueryInitFeatures() == 0 ||
+        road_generator_->nQueryInitLabels() == 0){
+        QMessageBox msgBox;
+        msgBox.setText("Please apply query init classifer for initializing road seeds.");
+        msgBox.exec();
+        return;
+    }
+    
+    road_generator_->addInitialRoad();
+    
+    updateGL();
+}
+
+void SceneWidget::slotRoadGeneratorDevelopRoadNetwork(){
+    
+}
+
+void SceneWidget::slotRoadGeneratorLocalAdjustment(){
+    
+}
+
+void SceneWidget::slotRoadGeneratorMCMCOptimization(){
+    
+}
+
+/*
+            Features
+ */
+void SceneWidget::slotExtractQueryInitTrainingSamplesFromMap(){
+    if (osmMap_->isEmpty()){
+        QMessageBox msgBox;
+        msgBox.setText("Please load an openstreetmap.");
+        msgBox.exec();
+        return;
+    }
+    
+    if (trajectories_->isEmpty()){
+        QMessageBox msgBox;
+        msgBox.setText("Please load trajectory file.");
+        msgBox.exec();
+        return;
+    }
+    
+    MainWindow* main_window = MainWindow::getInstance();
+    float sigma = main_window->getUi()->queryInitSearchRadius->value();
+    
+    query_init_feature_selector_->extractTrainingSamplesFromMap(sigma, osmMap_);
+    QString str;
+    QTextStream(&str) << "Query Init samples extracted from map. Not saved yet.";
+    main_window->getUi()->featureInfo->setText(str);
+    
+    updateGL();
+}
+
+void SceneWidget::slotLoadQueryInitTrainingSamples(){
+    MainWindow* main_window = MainWindow::getInstance();
+    
+    QString filename = QFileDialog::getOpenFileName(main_window,
+                                                    "Open Query Init Traning Sample",
+                                                    default_python_test_dir.c_str(),
+                                                    " (*.txt)");
+    if (filename.isEmpty())
+        return;
+    
+    QString str;
+    if (query_init_feature_selector_->loadTrainingSamples(filename.toStdString()))
+    {
+        QTextStream(&str) << "Query Init samples loaded from " << filename;
+    }
+    else{
+        QTextStream(&str) << "Error occured when loading query init samples from " << filename;
+    }
+    
+    main_window->getUi()->featureInfo->setText(str);
+    
+    updateGL();
+}
+
+void SceneWidget::slotSaveQueryInitTrainingSamples(){
+    MainWindow* main_window = MainWindow::getInstance();
+    
+    QString filename = QFileDialog::getSaveFileName(main_window, "Save Query Init Training Samples",
+                                                    default_python_test_dir.c_str(),
+                                                    "*.txt");
+    if (filename.isEmpty())
+        return;
+    query_init_feature_selector_->saveTrainingSamples(filename.toStdString());
+    
+    QString str;
+    QTextStream(&str) << "Query Init samples saved as: " << filename;
+    main_window->getUi()->featureInfo->setText(str);
+}
+
+void SceneWidget::slotTrainQueryInitClassifier(){
+    if(query_init_feature_selector_->nFeatures() == 0){
+        QMessageBox msgBox;
+        msgBox.setText("Please compute or load training samples first.");
+        msgBox.exec();
+        return;
+    }
+    
+    if( query_init_feature_selector_->nFeatures() !=
+       query_init_feature_selector_->nLabels()){
+        QMessageBox msgBox;
+        msgBox.setText("Error! Training feature and label size do not match.");
+        msgBox.exec();
+        return;
+    }
+    
+    MainWindow* main_window = MainWindow::getInstance();
+    QString str;
+    if (query_init_feature_selector_->trainClassifier()){
+        QTextStream(&str) << "Training Query Init classifier completed.";
+    }
+    else{
+        QTextStream(&str) << "Error occurred when training Query Init classifier.";
+    }
+    
+    main_window->getUi()->featureInfo->setText(str);
+}
+
+void SceneWidget::slotSaveQueryInitClassifer(){
+    MainWindow* main_window = MainWindow::getInstance();
+    
+    QString filename = QFileDialog::getSaveFileName(main_window, "Save Query Init Classifier as .dat file.",
+                                                    default_python_test_dir.c_str(),
+                                                    "*.dat");
+    if (filename.isEmpty())
+        return;
+    query_init_feature_selector_->saveClassifier(filename.toStdString());
+    
+    QString str;
+    QTextStream(&str) << "Query Init classifier saved as: " << filename;
+    main_window->getUi()->featureInfo->setText(str);
+}
+
+void SceneWidget::slotExtractQueryQTrainingSamplesFromMap(){
+    if (osmMap_->isEmpty()){
+        QMessageBox msgBox;
+        msgBox.setText("Please load an openstreetmap.");
+        msgBox.exec();
+        return;
+    }
+    
+    if (trajectories_->isEmpty()){
+        QMessageBox msgBox;
+        msgBox.setText("Please load trajectory file.");
+        msgBox.exec();
+        return;
+    }
+    
+    MainWindow* main_window = MainWindow::getInstance();
+    float sigma = main_window->getUi()->queryInitSearchRadius->value();
+    
+    query_q_feature_selector_->extractTrainingSamplesFromMap(sigma, osmMap_);
+    QString str;
+    QTextStream(&str) << "Query Q samples extracted from map. Not saved yet.";
+    main_window->getUi()->featureInfo->setText(str);
+    
+    updateGL();
+}
+
+void SceneWidget::slotLoadQueryQTrainingSamples(){
+    
+}
+
+void SceneWidget::slotSaveQueryQTrainingSamples(){
+    
+}
+
+void SceneWidget::slotTrainQueryQClassifier(){
+    
+}
+
+void SceneWidget::slotSaveQueryQClassifer(){
+    
+}
+
+/*
+    Others
+ */
 void SceneWidget::slotClearAll(void){
     clearData();
 }
@@ -635,7 +847,7 @@ void SceneWidget::clearData(void){
     yRot = 0;
     xTrans = 0;
     yTrans = 0;
-   
+    
     SceneConst::getInstance().setBoundBox(QVector4D(1e10, -1e10, 1e10, -1e10));
     
     trajectories_->clearData();
@@ -652,236 +864,5 @@ void SceneWidget::clearData(void){
     maxScaleFactor_ = 1.0;
     zoomTransX_ = 0.0f;
     zoomTransY_ = 0.0f;
-    updateGL();
-}
-
-void SceneWidget::slotExtractTrajectories(void){
-    if (osmMap_->isEmpty()){
-        QMessageBox msgBox;
-        msgBox.setText("Please load an openstreetmap first.");
-        msgBox.exec();
-        return;
-    }
-    MainWindow* main_window = MainWindow::getInstance();
-    
-	QStringList filenames = QFileDialog::getOpenFileNames(main_window, "Open Trajectories",
-                                                          main_window->getWorkspace().c_str(), "Trajectories (*.pbf)");
-	if (filenames.isEmpty())
-		return;
-  
-    osmMap_->updateMapSearchTree(10.0f); // update the map search tree with 10.0meter grid
-    
-    QVector4D bound_box = SceneConst::getInstance().getBoundBox();
-    trajectories_->extractFromFiles(filenames, bound_box, osmMap_->map_search_tree());
-    
-    SceneConst::getInstance().setBoundBox(bound_box);
-   
-    trajectories_->prepareForVisualization();
-    osmMap_->prepareForVisualization();
-    
-    updateGL();
-}
-
-void SceneWidget::slotSetShowDirection(int state){
-    if (state == Qt::Unchecked)
-        trajectories_->setShowDirection(false);
-    else
-        trajectories_->setShowDirection(true);
-    updateGL();
-}
-
-//void SceneWidget::slotOpenOsmFile(QModelIndex index){
-//}
-
-//void SceneWidget::mouseMoveEvent(QMouseEvent* event)
-//{
-//	//MainWindow* main_window = MainWindow::getInstance();
-//
-//	return;
-//}
-
-void SceneWidget::slotEnterSampleSelectionMode(void){
-    sample_selection_mode = true;
-}
-
-void SceneWidget::slotClearPickedSamples(void){
-    trajectories_->clearPickedSamples();
-    updateGL();
-}
-
-void SceneWidget::slotInitializeGraph(void){
-    if (trajectories_->isEmpty()){
-        QMessageBox msgBox;
-        msgBox.setText("Please loat trajectories first.");
-        msgBox.exec();
-        return;
-    }
-    
-    if (trajectories_->samples()->size() == 0){
-        QMessageBox msgBox;
-        msgBox.setText("Please do sampling first.");
-        msgBox.exec();
-        return;
-    }
-    
-    //graph_->updateGraphUsingSamplesAndSegments(trajectories_->samples(), trajectories_->sample_tree(), trajectories_->segments(), trajectories_->sample_segment_clusters(), trajectories_->sample_cluster_sizes(), trajectories_->data(), trajectories_->tree());
-    //graph_->updateGraphUsingDBSCANClustersAndSamples(trajectories_->samples(), trajectories_->sample_tree(),  trajectories_->data(), trajectories_->tree(), trajectories_->dbscanClusterSamples());
-    
-//    graph_->updateGraphUsingSamplesAndGpsPointCloud(trajectories_->samples(), trajectories_->sample_tree(),  trajectories_->data(), trajectories_->tree());
-//    graph_->updateGraphUsingDescriptor(trajectories_->cluster_centers(), trajectories_->cluster_center_search_tree(), trajectories_->descriptors(), trajectories_->cluster_popularity(), trajectories_->data(), trajectories_->tree());
-    
-    trajectories_->prepareForVisualization();
-//    graph_->prepareForVisualization();
-    
-    // Generate information
-    QString str;
-//    QTextStream(&str) << graph_->nVertices() << " vertices. " << graph_->nEdges()<< " edges.";
-//    emit newGraphComputed(str);
-    updateGL();
-}
-
-void SceneWidget::slotUpdateGraph(void){
-    if (trajectories_->isEmpty()){
-        QMessageBox msgBox;
-        msgBox.setText("Please loat trajectories first.");
-        msgBox.exec();
-        return;
-    }
-    
-    if (trajectories_->samples()->size() == 0){
-        QMessageBox msgBox;
-        msgBox.setText("Please do sampling first.");
-        msgBox.exec();
-        return;
-    }
-    
-    //graph_->updateGraphUsingSamplesAndSegments(trajectories_->samples(), trajectories_->sample_tree(), trajectories_->segments(), trajectories_->sample_segment_clusters(), trajectories_->sample_cluster_sizes(),trajectories_->data(), trajectories_->tree());
-//    graph_->prepareForVisualization();
-    
-    // Generate information
-    QString str;
-//    QTextStream(&str) << graph_->nVertices() << " vertices. " << graph_->nEdges()<< " edges.";
-    emit newGraphComputed(str);
-    updateGL();
-}
-
-void SceneWidget::slotSaveQueryQFeatures(){
-    MainWindow* main_window = MainWindow::getInstance();
-    
-    QString filename = QFileDialog::getSaveFileName(main_window, "Save ?Q Features",
-                                                    main_window->getWorkspace().c_str(), "*.txt");
-    if (filename.isEmpty())
-        return;
-    
-    query_q_feature_selector_->save(filename.toStdString());
-}
-
-void SceneWidget::slotExportQueryQFeatures(){
-    MainWindow* main_window = MainWindow::getInstance();
-    
-    QString filename = QFileDialog::getSaveFileName(main_window, "Export ?Q Features",
-                                                    main_window->getWorkspace().c_str(), "*.txt");
-    if (filename.isEmpty())
-        return;
-    query_q_feature_selector_->exportFeatures(filename.toStdString());
-    
-    updateGL();
-}
-
-void SceneWidget::slotLoadQueryQPredictions(){
-    MainWindow* main_window = MainWindow::getInstance();
-    
-    QString filename = QFileDialog::getOpenFileName(main_window, "Load Query Q Prediction",
-                                                    main_window->getWorkspace().c_str(), "*.txt");
-    if (filename.isEmpty())
-        return;
-    
-    if (query_q_feature_selector_->loadPrediction(filename.toStdString()))
-    {
-        updateGL();
-    }
-    
-    return;
-}
-
-void SceneWidget::slotComputeQueryInitFeaturesFromMap(){
-    if (osmMap_->isEmpty()){
-        QMessageBox msgBox;
-        msgBox.setText("Please load an openstreetmap first.");
-        msgBox.exec();
-        return;
-    }
-    
-    MainWindow* main_window = MainWindow::getInstance();
-    float sigma = main_window->getUi()->queryInitSearchRadius->value();
-    road_generator_->sparseVoting(sigma);
-    
-    query_init_feature_selector_->computeQueryInitFeaturesFromMap(sigma, osmMap_);
-    updateGL();
-}
-
-void SceneWidget::slotSaveQueryInitFeatures(){
-    MainWindow* main_window = MainWindow::getInstance();
-    
-    QString filename = QFileDialog::getSaveFileName(main_window, "Save Features",
-                                                    default_python_test_dir.c_str(),
-                                                    "*.txt");
-    if (filename.isEmpty())
-        return;
-    query_init_feature_selector_->save(filename.toStdString());
-}
-
-void SceneWidget::slotExportQueryInitFeatures(){
-    MainWindow* main_window = MainWindow::getInstance();
-    
-    QString filename = QFileDialog::getSaveFileName(main_window,
-                                                    "Export Features",
-                                                    default_python_test_dir.c_str(),
-                                                    "*.txt");
-    if (filename.isEmpty())
-        return;
-    
-    float sigma = main_window->getUi()->queryInitSearchRadius->value();
-    road_generator_->sparseVoting(sigma);
-    
-    query_init_feature_selector_->exportFeatures(sigma, filename.toStdString());
-    
-    updateGL();
-}
-
-void SceneWidget::slotLoadQueryInitPredictions(){
-    MainWindow* main_window = MainWindow::getInstance();
-    
-    QString filename = QFileDialog::getOpenFileName(main_window, "Load Query Init Prediction",
-                                                    main_window->getWorkspace().c_str(), "*.txt");
-    if (filename.isEmpty())
-        return;
-    
-    if (query_init_feature_selector_->loadPrediction(filename.toStdString()))
-    {
-        updateGL();
-    }
-    
-    return;
-    
-}
-
-void SceneWidget::slotComputeQueryQFeaturesFromMap(){
-    if (osmMap_->isEmpty()){
-        QMessageBox msgBox;
-        msgBox.setText("Please load an openstreetmap first.");
-        msgBox.exec();
-        return;
-    }
-    
-    query_q_feature_selector_->computeQueryQFeaturesFromMap(osmMap_);
-    updateGL();
-}
-
-void SceneWidget::slotSetShowGraph(int state){
-//    if (state == Qt::Unchecked)
-//        show_graph_ = false;
-//    else
-//        show_graph_ = true;
     updateGL();
 }

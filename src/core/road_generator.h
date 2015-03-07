@@ -117,17 +117,19 @@ public:
         }
     }
     
-    // Tensor Voting
-    void denseVoting(float sigma);
-    void sparseVoting(float sigma);
-    void tracing(float sigma);
-    
     void applyRules();
     
     // Features & Prediction
+    bool loadQueryInitClassifer(const string& filename);
+    bool hasValidQueryInitDecisionFunction() const { return query_init_df_is_valid_; }
+    void applyQueryInitClassifier(float radius);
+    void extractQueryInitFeatures(float radius);
+    int  nQueryInitFeatures() { return query_init_features_.size(); }
+    int  nQueryInitLabels() { return query_init_labels_.size(); }
+    
     bool exportQueryInitFeatures(float radius, const string& filename);
     bool loadQueryInitFeatures(const string& filename);
-    bool addQueryInitToString();
+    bool addInitialRoad();
     void trace_road();
     void extend_road(int r_idx, vector<RoadPt>&, vector<bool>& mark_list, bool forward = true);
     
@@ -162,25 +164,29 @@ public:
     void cleanUp();
     
 private:
-    PclPointCloud::Ptr           point_cloud_;
-    PclSearchTree::Ptr           search_tree_;
+    PclPointCloud::Ptr              point_cloud_;
+    PclSearchTree::Ptr              search_tree_;
     
-    // Tensor voting
-    vector<Eigen::Matrix2d>      tensor_votes_;
-    vector<vector<int>>          traced_curves_;
-    
-    map<vertex_t, Symbol*>       graph_nodes_;
-    symbol_graph_t               symbol_graph_;
-    vector<Symbol*>              production_string_;
-    Trajectories*                trajectories_;
-    vector<bool>                 has_been_covered_;
+    map<vertex_t, Symbol*>          graph_nodes_;
+    symbol_graph_t                  symbol_graph_;
+    vector<Symbol*>                 production_string_;
+    Trajectories*                   trajectories_;
+    vector<bool>                    has_been_covered_;
 
-    FeatureType                  current_feature_type_;
-    vector<Vertex>               feature_properties_; // x, y, heading
-    vector<int>                  labels_;
+    // Query Init Features and Classifiers
+    query_init_decision_function    query_init_df_;
+    bool                            query_init_df_is_valid_;
+    vector<query_init_sample_type>  query_init_features_;
+    vector<int>                     query_init_labels_;
+    vector<Vertex>                  query_init_feature_properties_; // x, y, heading
     
-    vector<Vertex>               feature_vertices_;
-    vector<Color>                feature_colors_;
+    vector<Vertex>                  feature_properties_; // x, y, heading
+    vector<int>                     labels_;
+    
+    // Query Q Features and Classifiers
+    
+    vector<Vertex>                  feature_vertices_;
+    vector<Color>                   feature_colors_;
 };
 
 #endif /* defined(__junction_reconstruction__road_generator__) */

@@ -25,14 +25,11 @@
 typedef dlib::matrix<double, 48, 1> query_init_sample_type;
 typedef dlib::matrix<double, 40, 1> query_q_sample_type;
 
-using namespace std;
+typedef dlib::radial_basis_kernel<query_init_sample_type> rbf_kernel;
+typedef dlib::one_vs_one_trainer<dlib::any_trainer<query_init_sample_type> > query_init_ovo_trainer;
+typedef dlib::one_vs_one_decision_function<query_init_ovo_trainer, dlib::decision_function<rbf_kernel> > query_init_decision_function;
 
-enum FeatureType{
-    NONE,
-    BRANCH_FEATURE,
-    QUERY_INIT_FEATURE,
-    QUERY_Q_FEATURE
-};
+using namespace std;
 
 enum QueryInitLabel{
     ONEWAY_ROAD = 0,
@@ -45,11 +42,23 @@ enum QueryQLabel{
     R_BRANCH = 1
 };
 
-void computeQueryInitFeatureAt(float radius, PclPoint& point, Trajectories* trajectories, vector<float>& feature, float canonical_heading);
+void computeQueryInitFeatureAt(float radius,
+                               PclPoint& point,
+                               Trajectories* trajectories,
+                               query_init_sample_type& feature,
+                               float canonical_heading);
 
-void computeQueryQFeatureAt(PclPoint& point, Trajectories* trajectories, vector<float>& feature, float heading, bool is_oneway = true, bool is_reverse_dir = false);
+void trainQueryInitClassifier(vector<query_init_sample_type>& samples,
+                                 vector<int>& labels,
+                                 query_init_decision_function& df);
 
-void computeQueryQFeatureAt(PclPoint& point, Trajectories* trajectories, vector<float>& feature, set<int>& allowable_trajs, map<int, float>& allowable_traj_min_ts, map<int, float>& allowable_traj_max_ts, vector<int>& tmp, float heading, bool is_oneway = true, bool is_reverse_dir = false);
+void computeQueryQFeatureAt(float radius,
+                            PclPoint& point,
+                            Trajectories* trajectories,
+                            query_q_sample_type& new_feature,
+                            float heading,
+                            bool is_oneway = true,
+                            bool is_reverse_dir = false);
 
 class QueryInitFeatureSelector : public Renderable{
 public:
@@ -58,17 +67,17 @@ public:
     
     void setTrajectories(Trajectories* new_trajectories);
     
-    void computeQueryInitLabelAt(float radius, PclPoint& point, int& label);
+    void computeLabelAt(float radius, PclPoint& point, int& label);
     
-    void computeQueryInitFeaturesFromMap(float radius, OpenStreetMap *osmMap);
+    void extractTrainingSamplesFromMap(float radius, OpenStreetMap *osmMap);
+    bool loadTrainingSamples(const string& filename);
+    bool saveTrainingSamples(const string& filename);
     
-    bool save(const string& filename);
-    bool exportFeatures(float radius, const string& filename);
-    bool loadPrediction(const string& filename);
+    bool trainClassifier();
+    bool saveClassifier(const string& filename);
     
-    int nCurrentFeatures() const { return features_.size(); }
-    int nYes() const { return n_yes_; }
-    int nNo() const { return features_.size() - n_yes_; }
+    int nFeatures() const { return features_.size(); }
+    int nLabels() const { return labels_.size(); }
     
     vector<int>& labels() { return labels_; }
     
@@ -78,15 +87,17 @@ public:
     void clear();
     
 private:
-    Trajectories*           trajectories_;
-    OpenStreetMap*          osmMap_;
-    vector<vector<float>>   features_; //heading distribution + distance distribution
-    vector<int>             labels_;
-    int                     n_yes_;
+    Trajectories*                       trajectories_;
+    OpenStreetMap*                      osmMap_;
+    
+    vector<query_init_sample_type>      features_;
+    vector<int>                         labels_;
+    bool                                decision_function_valid_;
+    query_init_decision_function        df_;
     
     // For visualization
-    vector<Vertex>          feature_vertices_;
-    vector<Color>           feature_colors_;
+    vector<Vertex>                      feature_vertices_;
+    vector<Color>                       feature_colors_;
 };
 
 class QueryQFeatureSelector : public Renderable
@@ -99,13 +110,14 @@ public:
     void addFeatureAt(vector<float> &loc, QueryQLabel type);
     
     int nCurrentFeatures(void) const { return features_.size(); }
+    int nLabels(void)   const        { return labels_.size(); }
     
-    void computeQueryQFeaturesFromMap(OpenStreetMap *osmMap);
-    void computeQueryQLabelAt(PclPoint& point, QueryQLabel& label, bool is_reverse_dir = false);
+    void extractTrainingSamplesFromMap(float radius, OpenStreetMap *osmMap);
+    void computeQueryQLabelAt(PclPoint& point,
+                              QueryQLabel& label,
+                              bool is_reverse_dir = false);
     
     bool save(const string& filename);
-    bool exportFeatures(const string& filename);
-    bool loadPrediction(const string& filename);
     
     void draw();
     
@@ -113,19 +125,15 @@ public:
     void clear();
     
 private:
-    Trajectories*           trajectories_;
-    OpenStreetMap*          osmMap_;
+    Trajectories*                       trajectories_;
+    OpenStreetMap*                      osmMap_;
     
-    vector<vector<float>>   features_;
-    vector<QueryQLabel>     labels_;
+    vector<query_q_sample_type>         features_;
+    vector<int>                         labels_;
+    bool                                decision_function_valid_;
     
-    int                     tmp_;
-    
-    vector<Vertex>          feature_vertices_;
-    vector<Color>           feature_colors_;
+    vector<Vertex>                      feature_vertices_;
+    vector<Color>                       feature_colors_;
 };
-
-
-
 
 #endif /* defined(__junction_reconstruction__features__) */

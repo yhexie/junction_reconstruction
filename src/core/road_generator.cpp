@@ -1130,8 +1130,9 @@ RoadGenerator::RoadGenerator(QObject *parent, Trajectories* trajectories) : Rend
         }
     }
     production_string_.clear();
-    current_feature_type_ = NONE;
     feature_properties_.clear();
+    
+    query_init_df_is_valid_ = false;
 }
 
 RoadGenerator::~RoadGenerator(){
@@ -1144,176 +1145,6 @@ RoadGenerator::~RoadGenerator(){
     if(graph_nodes_.size() > 0){
         for (map<vertex_t, Symbol*>::iterator it = graph_nodes_.begin(); it != graph_nodes_.end(); ++it) {
             delete it->second;
-        }
-    }
-}
-
-void RoadGenerator::sparseVoting(float sigma){
-    PclPointCloud::Ptr samples = trajectories_->samples();
-    PclSearchTree::Ptr sample_tree = trajectories_->sample_tree();
-    vector<Matrix2d> init_tensors(samples->size(), Matrix2d::Identity());
-    tensor_votes_.clear();
-    tensor_votes_.resize(samples->size(), Matrix2d::Zero());
-    float search_radius = 5.0f * sigma;
-    for (size_t i = 0; i < samples->size(); ++i) {
-        PclPoint& pt = samples->at(i);
-        vector<int> k_indices;
-        vector<float> k_dist_sqrs;
-        sample_tree->radiusSearch(pt, search_radius, k_indices, k_dist_sqrs);
-        // Decompose current tensor
-        float heading_in_radius = samples->at(i).head * PI / 180.0f;
-        Vector2d e1(-sin(heading_in_radius), cos(heading_in_radius));
-        Vector2d dir(cos(heading_in_radius), sin(heading_in_radius));
-        
-        double lambda1, lambda2;
-//        tensor_decomposition(init_tensors[i],
-//                             e1,
-//                             e2,
-//                             lambda1,
-//                             lambda2);
-        lambda1 = 1.0f;
-        lambda2 = 0.0f;
-        
-        for(size_t j = 0; j < k_indices.size(); ++j){
-            if (j == i) {
-                continue;
-            }
-            
-            // Check heading compatibility
-            float delta_heading = abs(deltaHeading1MinusHeading2(samples->at(i).head, samples->at(j).head));
-            if(delta_heading > 45.0f){
-                continue;
-            }
-            
-            int nb_pt_idx = k_indices[j];
-            
-            Vector2d v(samples->at(nb_pt_idx).x - samples->at(i).x,
-                       samples->at(nb_pt_idx).y - samples->at(i).y);
-            
-            if(lambda1 > lambda2){
-                // Cast stick vote with magnitude (lambda1 - lambda2)
-                Matrix2d Ts;
-                compute_unit_stick_vote(e1,
-                                        v,
-                                        sigma,
-                                        Ts);
-                tensor_votes_[nb_pt_idx] += (lambda1 - lambda2) * Ts;
-            }
-            
-            if(lambda2 > 0){
-                // Cast ball vote with magnitude lambda2
-                Matrix2d Tb;
-                compute_unit_ball_vote(v,
-                                       sigma,
-                                       Tb);
-                tensor_votes_[nb_pt_idx] += lambda2 * Tb;
-            }
-        }
-    }
-    
-    return;
-    // Visualization
-    feature_vertices_.clear();
-    feature_colors_.clear();
-    float min_threshold_for_noise = 0.1f;
-    for (size_t i = 0; i < samples->size(); ++i) {
-        PclPoint& pt = samples->at(i);
-        // Decompose current tensor
-        Vector2d e1, e2;
-        double lambda1, lambda2;
-        tensor_decomposition(tensor_votes_[i],
-                             e1,
-                             e2,
-                             lambda1,
-                             lambda2);
-        float stick_scale = lambda1 - lambda2;
-        float ball_scale = lambda2;
-        
-        if(ball_scale < min_threshold_for_noise && stick_scale < min_threshold_for_noise){
-            // This is noise
-            feature_vertices_.push_back(SceneConst::getInstance().normalize(pt.x, pt.y, Z_FEATURES));
-            feature_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::DARK_GRAY));
-        }
-        else{
-            if (stick_scale > 1.05 * ball_scale) {
-                // This is curve
-                feature_vertices_.push_back(SceneConst::getInstance().normalize(pt.x, pt.y, Z_FEATURES));
-                feature_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::GREEN));
-            }
-            else{
-                feature_vertices_.push_back(SceneConst::getInstance().normalize(pt.x, pt.y, Z_FEATURES));
-                feature_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::RED));
-            }
-        }
-    }
-}
-
-void RoadGenerator::denseVoting(float sigma){
-    
-}
-
-void RoadGenerator::tracing(float sigma){
-    PclPointCloud::Ptr samples = trajectories_->samples();
-    PclSearchTree::Ptr sample_tree = trajectories_->sample_tree();
-    
-    // Trace road as local maximum
-    traced_curves_.clear();
-    vector<double> curve_map(tensor_votes_.size(), 0.0f);
-    vector<Vector2d> curve_normals(tensor_votes_.size(), Vector2d::Zero());
-    vector<double> junction_map(tensor_votes_.size(), 0.0f);
-   
-    for(size_t i = 0; i < tensor_votes_.size(); ++i){
-        // Decompose the tensor
-        Vector2d e1, e2;
-        double lambda1, lambda2;
-        tensor_decomposition(tensor_votes_[i],
-                             e1,
-                             e2,
-                             lambda1,
-                             lambda2);
-        curve_normals[i] = e1;
-        curve_map[i] = lambda1 - lambda2;
-        junction_map[i] = lambda2;
-    }
-    
-    // local maximum
-    vector<bool> is_curve_local_maximum(tensor_votes_.size(), false);
-    float search_radius = 1.2f * sigma;
-    for(size_t i = 0; i < tensor_votes_.size(); ++i){
-        PclPoint& pt = samples->at(i);
-        vector<int> k_indices;
-        vector<float> k_dist_sqrs;
-        bool is_local_maximum = true;
-        sample_tree->radiusSearch(pt, search_radius, k_indices, k_dist_sqrs);
-        if(k_indices.size() < 2){
-            is_local_maximum = false;
-        }
-        for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
-            if(*it == i){
-                continue;
-            }
-            
-            if (curve_map[i] < curve_map[*it]) {
-                is_local_maximum = false;
-                break;
-            }
-        }
-        is_curve_local_maximum[i] = is_local_maximum;
-    }
-    
-    // Visualization
-    feature_vertices_.clear();
-    feature_colors_.clear();
-    for (size_t i = 0; i < samples->size(); ++i) {
-        PclPoint& pt = samples->at(i);
-        // This is curve
-        if (is_curve_local_maximum[i]) {
-            feature_vertices_.push_back(SceneConst::getInstance().normalize(pt.x, pt.y, Z_FEATURES));
-            feature_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::GREEN));
-        }
-        else{
-//            feature_vertices_.push_back(SceneConst::getInstance().normalize(pt.x, pt.y, Z_FEATURES));
-//            feature_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::DARK_GRAY));
         }
     }
 }
@@ -1480,9 +1311,64 @@ void RoadGenerator::applyRules(){
     }
 }
 
+bool RoadGenerator::loadQueryInitClassifer(const string& filename){
+    dlib::deserialize(filename.c_str()) >> query_init_df_;
+    query_init_df_is_valid_ = true;
+    
+    return true;
+}
+
+void RoadGenerator::applyQueryInitClassifier(float radius){
+    // Extract features
+    extractQueryInitFeatures(radius);
+    
+    // Apply classifier and adjust visualization
+    if(query_init_features_.size() == 0){
+        return;
+    }
+    
+    query_init_labels_.clear();
+    query_init_labels_.resize(query_init_features_.size(), 2);
+    for(int i = 0; i < query_init_features_.size(); ++i){
+        int this_label = floor(query_init_df_(query_init_features_[i]));
+        query_init_labels_[i] = this_label;
+        if (this_label == ONEWAY_ROAD) {
+            feature_colors_[i] = ColorMap::getInstance().getNamedColor(ColorMap::ONEWAY_COLOR);
+        }
+        else if(this_label == TWOWAY_ROAD){
+            feature_colors_[i] = ColorMap::getInstance().getNamedColor(ColorMap::TWOWAY_COLOR);
+        }
+        else{
+            feature_colors_[i] = ColorMap::getInstance().getNamedColor(ColorMap::NON_ROAD_COLOR);
+        }
+    }
+}
+
+void RoadGenerator::extractQueryInitFeatures(float radius){
+    PclPointCloud::Ptr& samples = trajectories_->samples();
+    
+    query_init_features_.clear();
+    query_init_feature_properties_.clear();
+    
+    feature_colors_.clear();
+    feature_vertices_.clear();
+    
+    for (size_t i = 0; i < samples->size(); ++i) {
+        PclPoint& pt = samples->at(i);
+        query_init_feature_properties_.push_back(Vertex(pt.x, pt.y, pt.head));
+        
+        query_init_sample_type new_feature;
+        computeQueryInitFeatureAt(radius, pt, trajectories_, new_feature, pt.head);
+       
+        query_init_features_.push_back(new_feature);
+        
+        feature_vertices_.push_back(SceneConst::getInstance().normalize(pt.x, pt.y, Z_FEATURES));
+        feature_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::DARK_GRAY));
+    }
+}
+
 bool RoadGenerator::exportQueryInitFeatures(float radius, const string &filename){
     // Compute features for each sample points
-    current_feature_type_ = QUERY_INIT_FEATURE;
     vector<vector<float>> features;
     
     PclPointCloud::Ptr& samples = trajectories_->samples();
@@ -1495,9 +1381,8 @@ bool RoadGenerator::exportQueryInitFeatures(float radius, const string &filename
         PclPoint& pt = samples->at(i);
         feature_properties_.push_back(Vertex(pt.x, pt.y, pt.head));
         
-        vector<float> new_feature;
+        query_init_sample_type new_feature;
         computeQueryInitFeatureAt(radius, pt, trajectories_, new_feature, pt.head);
-        features.push_back(new_feature);
         feature_vertices_.push_back(SceneConst::getInstance().normalize(pt.x, pt.y, Z_FEATURES));
         feature_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::DARK_GRAY));
     }
@@ -1519,11 +1404,6 @@ bool RoadGenerator::exportQueryInitFeatures(float radius, const string &filename
 }
 
 bool RoadGenerator::loadQueryInitFeatures(const string &filename){
-    if(current_feature_type_ != QUERY_INIT_FEATURE){
-        printf("Road Generator Warning: current feature is not query init!\n");
-        return false;
-    }
-    
     ifstream fin(filename);
     if (!fin.good())
         return false;
@@ -1556,7 +1436,7 @@ bool RoadGenerator::loadQueryInitFeatures(const string &filename){
     return true;
 }
 
-bool RoadGenerator::addQueryInitToString(){
+bool RoadGenerator::addInitialRoad(){
     /*
         At each sample location, determine road type (oneway or twoway), guess road heading, road width
      */
@@ -4068,7 +3948,6 @@ void RoadGenerator::clear(){
     feature_vertices_.clear();
     feature_colors_.clear();
     
-    current_feature_type_ = NONE;
     feature_properties_.clear();
     labels_.clear();
     
