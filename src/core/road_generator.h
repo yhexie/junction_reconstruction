@@ -126,9 +126,13 @@ public:
     void extractQueryInitFeatures(float radius);
     int  nQueryInitFeatures() { return query_init_features_.size(); }
     int  nQueryInitLabels() { return query_init_labels_.size(); }
-    
     bool exportQueryInitFeatures(float radius, const string& filename);
     bool loadQueryInitFeatures(const string& filename);
+   
+    bool loadQueryQClassifer(const string& filename);
+    bool hasValidQueryQDecisionFunction() const { return query_q_df_is_valid_; }
+    
+    
     bool addInitialRoad();
     void trace_road();
     void extend_road(int r_idx, vector<RoadPt>&, vector<bool>& mark_list, bool forward = true);
@@ -179,6 +183,12 @@ private:
     vector<query_init_sample_type>  query_init_features_;
     vector<int>                     query_init_labels_;
     vector<Vertex>                  query_init_feature_properties_; // x, y, heading
+    
+    query_q_decision_function       query_q_df_;
+    bool                            query_q_df_is_valid_;
+    vector<query_q_sample_type>     query_q_features_;
+    vector<int>                     query_q_labels_;
+    vector<Vertex>                  query_q_feature_properties_;
     
     vector<Vertex>                  feature_properties_; // x, y, heading
     vector<int>                     labels_;

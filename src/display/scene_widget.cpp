@@ -620,7 +620,25 @@ void SceneWidget::slotRoadGeneratorApplyQueryInitClassifier(){
 }
 
 void SceneWidget::slotRoadGeneratorLoadQueryQClassifier(){
+    MainWindow* main_window = MainWindow::getInstance();
     
+    QString filename = QFileDialog::getOpenFileName(main_window,
+                                                    "Open Query Q Classifier",
+                                                    default_python_test_dir.c_str(),
+                                                    " (*.dat)");
+    if (filename.isEmpty())
+        return;
+    
+    QString str;
+    if (road_generator_->loadQueryQClassifer(filename.toStdString()))
+    {
+        QTextStream(&str) << "Query Init samples loaded from " << filename;
+    }
+    else{
+        QTextStream(&str) << "Error occured when loading query init samples from " << filename;
+    }
+    
+    main_window->getUi()->roadGeneratorQueryQClassifierInfo->setText(str);
 }
 
 void SceneWidget::slotRoadGeneratorAddInitialRoad(){
@@ -895,6 +913,26 @@ void SceneWidget::slotSaveQueryQClassifer(){
  */
 void SceneWidget::slotClearAll(void){
     clearData();
+    
+    MainWindow* main_window = MainWindow::getInstance();
+    
+    // Reset hint info
+    QString str;
+    QTextStream(&str) << "N.A.";
+    main_window->getUi()->roadGeneratorQueryInitClassifierInfo->setText(str);
+    main_window->getUi()->roadGeneratorQueryInitClassifierInfo->setText(str);
+    
+    QString str1;
+    QTextStream(&str1) << "No feature computed yet.";
+    main_window->getUi()->featureInfo->setText(str1);
+    
+    QString str2;
+    QTextStream(&str2) << "No trajectories has been loaded yet.";
+    main_window->getUi()->trajInfo->setText(str2);
+    
+    QString str3;
+    QTextStream(&str3) << "No osm file has been loaded yet.";
+    main_window->getUi()->mapInfo->setText(str3);
 }
 
 void SceneWidget::resetView(void){

@@ -427,11 +427,23 @@ void MyShapeHandler::way(const boost::shared_ptr<Osmium::OSM::Way> &way){
 
 void OpenStreetMap::clearData(){
     is_empty_ = true;
+    
+    map_point_cloud_->clear();
+    way_point_idxs_.clear();
+    
     normalized_vertices_.clear();
     vertex_colors_.clear();
+    direction_vertices_.clear();
+    direction_colors_.clear();
+    direction_idxs_.clear();
+    
     way_idxs_.clear();
     way_widths_.clear();
+    
+    node_idx_map_.clear();
     ways_.clear();
+    nodes_.clear();
+    equivalent_ways_.clear();
 }
 
 void OpenStreetMap::updateMapSearchTree(float grid_size){

@@ -1100,12 +1100,7 @@ void Trajectories::singleDirectionSamplePointCloud(float neighborhood_size){
         vector<float> heading_hist(N_BINS, 0.0f);
         for (size_t i = 0; i < k_indices.size(); ++i) {
             float heading = data_->at(k_indices[i]).head;
-            float speed = data_->at(k_indices[i]).speed * 1.0f / 100.0f;
-            
-            if(speed < 5.0f){
-                // Low speed angle is not accurate!
-                continue;
-            }
+            //float speed = data_->at(k_indices[i]).speed * 1.0f / 100.0f;
             
             int angle_bin_idx = floor(heading / DELTA_BIN);
             for (int s = -1; s <= 1; ++s){
@@ -1386,14 +1381,21 @@ void Trajectories::clearData(void){
     data_->clear();
     trajectories_.clear();
     selected_trajectories_.clear();
+    
     normalized_vertices_.clear();
     vertex_colors_const_.clear();
     vertex_colors_individual_.clear();
+    vertex_speed_.clear();
+    vertex_speed_colors_.clear();
+    vertex_speed_indices_.clear();
+    selected_trajectories_.clear();
     
     // Clear samples
     samples_->clear();
     picked_sample_idxs_.clear();
     normalized_sample_locs_.clear();
+    normalized_sample_headings_.clear();
     sample_vertex_colors_.clear();
+    sample_heading_colors_.clear();
+    picked_sample_idxs_.clear();
 }
-

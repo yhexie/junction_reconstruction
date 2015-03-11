@@ -26,6 +26,8 @@ typedef dlib::matrix<double, 48, 1> query_init_sample_type;
 typedef dlib::radial_basis_kernel<query_init_sample_type> query_init_rbf_kernel;
 typedef dlib::one_vs_one_trainer<dlib::any_trainer<query_init_sample_type> > query_init_ovo_trainer;
 typedef dlib::one_vs_one_decision_function<query_init_ovo_trainer, dlib::decision_function<query_init_rbf_kernel> > query_init_decision_function;
+//typedef dlib::one_vs_all_trainer<dlib::any_trainer<query_init_sample_type> > query_init_ova_trainer;
+//typedef dlib::one_vs_all_decision_function<query_init_ova_trainer, dlib::decision_function<query_init_rbf_kernel> > query_init_decision_function;
 
 typedef dlib::matrix<double, 40, 1> query_q_sample_type;
 typedef dlib::radial_basis_kernel<query_q_sample_type> query_q_rbf_kernel;

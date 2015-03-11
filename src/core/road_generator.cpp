@@ -1133,6 +1133,7 @@ RoadGenerator::RoadGenerator(QObject *parent, Trajectories* trajectories) : Rend
     feature_properties_.clear();
     
     query_init_df_is_valid_ = false;
+    query_q_df_is_valid_ = false;
 }
 
 RoadGenerator::~RoadGenerator(){
@@ -1432,6 +1433,13 @@ bool RoadGenerator::loadQueryInitFeatures(const string &filename){
     }
     
     fin.close();
+    
+    return true;
+}
+
+bool RoadGenerator::loadQueryQClassifer(const string& filename){
+    dlib::deserialize(filename.c_str()) >> query_q_df_;
+    query_q_df_is_valid_ = true;
     
     return true;
 }
@@ -3945,8 +3953,19 @@ void RoadGenerator::clear(){
     point_cloud_->clear();
    
     has_been_covered_.clear();
+    
     feature_vertices_.clear();
     feature_colors_.clear();
+    
+    query_init_df_is_valid_ = false;
+    query_init_features_.clear();
+    query_init_labels_.clear();
+    query_init_feature_properties_.clear();
+    
+    query_q_df_is_valid_ = false;
+    query_q_features_.clear();
+    query_q_labels_.clear();
+    query_q_feature_properties_.clear();
     
     feature_properties_.clear();
     labels_.clear();

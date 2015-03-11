@@ -172,14 +172,25 @@ void trainQueryInitClassifier(vector<query_init_sample_type>& samples,
         labels[i] = static_cast<double>(orig_labels[i]);
     }
     
-    query_init_ovo_trainer trainer;
-    dlib::krr_trainer<query_init_rbf_kernel> rbf_trainer;
-    rbf_trainer.set_kernel(query_init_rbf_kernel(0.1f));
-    
-    trainer.set_trainer(rbf_trainer);
     dlib::randomize_samples(samples, labels);
     
-    cout << "\tCross validation: \n" << dlib::cross_validate_multiclass_trainer(trainer, samples, labels, 5) << endl;
+    query_init_ovo_trainer trainer;
+    dlib::krr_trainer<query_init_rbf_kernel> rbf_trainer;
+    
+    // Cross Validation for choosing gamma
+//    for(double gamma = 0.05f; gamma < 0.4f; gamma += 0.05f){
+//        cout << "gamma = " << gamma << endl;
+//        rbf_trainer.set_kernel(query_init_rbf_kernel(gamma));
+//        
+//        trainer.set_trainer(rbf_trainer);
+//        
+//        cout << "\tCross validation: \n" << dlib::cross_validate_multiclass_trainer(trainer, samples, labels, 3) << endl;
+//    }
+    
+    double gamma = 0.15f;
+    
+    rbf_trainer.set_kernel(query_init_rbf_kernel(gamma));
+    trainer.set_trainer(rbf_trainer);
     
     df = trainer.train(samples, labels);
 }
@@ -991,8 +1002,13 @@ void QueryInitFeatureSelector::clear(){
     trajectories_ = NULL;
     osmMap_ = NULL;
     
+    decision_function_valid_ = false;
+    
     features_.clear();
     labels_.clear();
+    
+    feature_vertices_.clear();
+    feature_colors_.clear();
 }
 
 QueryQFeatureSelector::QueryQFeatureSelector(QObject* parent, Trajectories* trajectories) : Renderable(parent) {
@@ -1474,6 +1490,8 @@ void QueryQFeatureSelector::clearVisibleFeatures(){
 void QueryQFeatureSelector::clear(){
     trajectories_ = NULL;
     osmMap_ = NULL;
+    
+    decision_function_valid_ = false;
     
     features_.clear();
     labels_.clear();
