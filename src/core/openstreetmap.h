@@ -94,6 +94,8 @@ public:
     
     PclPointCloud::Ptr& map_point_cloud() { return map_point_cloud_; }
     PclSearchTree::Ptr& map_search_tree() {return map_search_tree_;}
+    vector<vector<int> >& way_point_idxs() { return way_point_idxs_; }
+    
     vector<OsmNode>& nodes() { return nodes_; }
     vector<OsmWay>& ways() { return ways_; }
     bool twoWaysEquivalent(int i, int j);
@@ -102,6 +104,8 @@ public:
 private:
     PclPointCloud::Ptr          map_point_cloud_;
     PclSearchTree::Ptr          map_search_tree_;
+    vector<vector<int> >        way_point_idxs_;
+    
     bool                        is_empty_;
     vector<Vertex>              normalized_vertices_;
     vector<Color>               vertex_colors_;

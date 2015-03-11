@@ -83,10 +83,10 @@ private:
     vector<vector<int> >              trajectories_;
     
     // Sample
-    PclPointCloud::Ptr              samples_;
-    PclSearchTree::Ptr              sample_tree_;
-    vector<Vertex>                  sample_locs_;
-    vector<float>                   sample_scales_;
+    PclPointCloud::Ptr                  samples_;
+    PclSearchTree::Ptr                  sample_tree_;
+    vector<Vertex>                      sample_locs_;
+    vector<float>                       sample_scales_;
     
     // Rendering
     float                           scale_factor_;

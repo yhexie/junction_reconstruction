@@ -90,7 +90,18 @@ static const double discrete[20][4] = {
     {0.8000,		0.0000,		0.2000, 1.0}
 };
 
-ColorMap::ColorMap() : light_blue_(Color(0.2f, 0.2f, 1.0f, 1.0f)), dark_gray_(Color(0.3, 0.3, 0.3, 1.0f)), light_gray_(Color(0.85f, 0.85f, 0.85f, 1.0f)), orange_(Color(1.0f, 0.83f, 0.0f, 0.3f)), red_(Color(1.0f, 0.0f, 0.0f, 1.0f)), blue_(Color(0.0f, 0.0f, 1.0f, 1.0f)), green_(Color(0.0f, 1.0f, 0.0f, 1.0f)), oneway_color_(Color(1.0f, 0.6f, 0.2f, 1.0f)), twoway_color_(Color(0.6f, 1.0f, 0.6f, 1.0f)), non_road_color_(Color(0.3, 0.3, 0.3, 1.0f))
+ColorMap::ColorMap() :  light_blue_(Color(0.2f, 0.2f, 1.0f, 1.0f)),
+                        dark_gray_(Color(0.3, 0.3, 0.3, 1.0f)),
+                        light_gray_(Color(0.85f, 0.85f, 0.85f, 1.0f)),
+                        orange_(Color(1.0f, 0.83f, 0.0f, 0.3f)),
+                        red_(Color(1.0f, 0.0f, 0.0f, 1.0f)),
+                        blue_(Color(0.0f, 0.0f, 1.0f, 1.0f)),
+                        green_(Color(0.0f, 1.0f, 0.0f, 1.0f)),
+                        oneway_color_(Color(1.0f, 0.6f, 0.2f, 1.0f)),
+                        twoway_color_(Color(0.6f, 1.0f, 0.6f, 1.0f)),
+                        non_road_color_(Color(0.3, 0.3, 0.3, 1.0f)),
+                        grow_color_(Color(0.0f, 1.0f, 0.0f, 1.0f)),
+                        branch_color_(Color(1.0f, 0.0f, 0.0f, 1.0f))
 {
     for (size_t i = 0, iEnd = 64; i < iEnd; ++ i) {
         continuous_.push_back(Color(continuous[i][0], continuous[i][1], continuous[i][2], continuous[i][3]));
@@ -127,12 +138,18 @@ const Color& ColorMap::getNamedColor(NamedColor named_color)
             return red_;
         case BLUE:
             return blue_;
+        // Query Init Color
         case ONEWAY_COLOR:
             return oneway_color_;
         case TWOWAY_COLOR:
             return twoway_color_;
         case NON_ROAD_COLOR:
             return non_road_color_;
+        // Query Q Color
+        case GROW_COLOR:
+            return grow_color_;
+        case BRANCH_COLOR:
+            return branch_color_;
         default:
             return light_blue_;
             break;

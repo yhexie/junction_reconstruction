@@ -808,19 +808,86 @@ void SceneWidget::slotExtractQueryQTrainingSamplesFromMap(){
 }
 
 void SceneWidget::slotLoadQueryQTrainingSamples(){
+    MainWindow* main_window = MainWindow::getInstance();
     
+    QString filename = QFileDialog::getOpenFileName(main_window,
+                                                    "Open Query Q Traning Sample",
+                                                    default_python_test_dir.c_str(),
+                                                    " (*.txt)");
+    if (filename.isEmpty())
+        return;
+    
+    QString str;
+    if (query_q_feature_selector_->loadTrainingSamples(filename.toStdString()))
+    {
+        QTextStream(&str) << "Query Q samples loaded from " << filename;
+    }
+    else{
+        QTextStream(&str) << "Error occured when loading query Q samples from " << filename;
+    }
+    
+    main_window->getUi()->featureInfo->setText(str);
+    
+    updateGL();
 }
 
 void SceneWidget::slotSaveQueryQTrainingSamples(){
+    MainWindow* main_window = MainWindow::getInstance();
     
+    QString filename = QFileDialog::getSaveFileName(main_window, "Save Query Q Training Samples",
+                                                    default_python_test_dir.c_str(),
+                                                    "*.txt");
+    if (filename.isEmpty())
+        return;
+    query_q_feature_selector_->saveTrainingSamples(filename.toStdString());
+    
+    QString str;
+    QTextStream(&str) << "Query Q samples saved as: " << filename;
+    main_window->getUi()->featureInfo->setText(str);
 }
 
 void SceneWidget::slotTrainQueryQClassifier(){
+    if(query_q_feature_selector_->nFeatures() == 0){
+        QMessageBox msgBox;
+        msgBox.setText("Please compute or load training samples first.");
+        msgBox.exec();
+        return;
+    }
     
+    if( query_q_feature_selector_->nFeatures() !=
+        query_q_feature_selector_->nLabels()){
+        QMessageBox msgBox;
+        msgBox.setText("Error! Training feature and label size do not match.");
+        msgBox.exec();
+        return;
+    }
+    
+    MainWindow* main_window = MainWindow::getInstance();
+    QString str;
+    if (query_q_feature_selector_->trainClassifier()){
+        QTextStream(&str) << "Training Query Q classifier completed.";
+    }
+    else{
+        QTextStream(&str) << "Error occurred when training Query Q classifier.";
+    }
+    
+    main_window->getUi()->featureInfo->setText(str);
 }
 
 void SceneWidget::slotSaveQueryQClassifer(){
+    MainWindow* main_window = MainWindow::getInstance();
     
+    QString filename = QFileDialog::getSaveFileName(main_window, "Save Query Q Classifier as .dat file.",
+                                                    default_python_test_dir.c_str(),
+                                                    "*.dat");
+    if (filename.isEmpty())
+        return;
+    
+    query_q_feature_selector_->saveClassifier(filename.toStdString());
+    
+    QString str;
+    QTextStream(&str) << "Query Q classifier saved as: " << filename;
+    main_window->getUi()->featureInfo->setText(str);
 }
 
 /*
@@ -854,8 +921,8 @@ void SceneWidget::clearData(void){
     osmMap_->clearData();
     feature_selection_mode_ = false;
     
-    query_init_feature_selector_->clearVisibleFeatures();
-    query_q_feature_selector_->clearVisibleFeatures();
+    query_init_feature_selector_->clear();
+    query_q_feature_selector_->clear();
     
     road_generator_->clear();
     selection_mode_ = false;

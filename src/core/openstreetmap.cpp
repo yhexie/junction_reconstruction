@@ -436,11 +436,13 @@ void OpenStreetMap::clearData(){
 
 void OpenStreetMap::updateMapSearchTree(float grid_size){
     map_point_cloud_->clear();
+    way_point_idxs_.clear();
     
     PclPoint point;
     point.setNormal(0, 0, 1);
     for (size_t i = 0; i < ways_.size(); ++i) {
         OsmWay &aWay = ways_[i];
+        vector<int> this_way_point_idxs; // Record the interpolated way point idxs in the point cloud
         if (aWay.eastings().size() == 0)
             continue;
         for (int j = 0; j < aWay.eastings().size()-1; ++j) {
@@ -467,10 +469,12 @@ void OpenStreetMap::updateMapSearchTree(float grid_size){
                 }
                 point.id_sample = node_degree;
                 point.head = floor(heading);
-                
+                point.car_id = static_cast<float>(this_way_point_idxs.size());
+                this_way_point_idxs.push_back(map_point_cloud_->size());
                 map_point_cloud_->push_back(point);
             }
         }
+        
         // Insert the last point
         int last_pt_id = aWay.eastings().size() - 1;
         Vector2d start(aWay.eastings()[last_pt_id-1], aWay.northings()[last_pt_id-1]);
@@ -486,8 +490,12 @@ void OpenStreetMap::updateMapSearchTree(float grid_size){
         point.id_trajectory = i; // This will record the osmWay id
         point.id_sample = nodes_[aWay.node_ids()[last_pt_id]].degree();
         point.head = floor(heading);
+        point.car_id = static_cast<float>(this_way_point_idxs.size()); // temporarily store the index of this point in way_point_idxs_ for calculating branching feature
         
+        this_way_point_idxs.push_back(map_point_cloud_->size());
         map_point_cloud_->push_back(point);
+        
+        way_point_idxs_.push_back(this_way_point_idxs);
     }
     map_search_tree_->setInputCloud(map_point_cloud_);
 }

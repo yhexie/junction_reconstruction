@@ -18,8 +18,8 @@ typedef adjacency_list<vecS, listS, undirectedS> symbol_graph_t;
 typedef graph_traits<symbol_graph_t>::vertex_descriptor vertex_t;
 
 enum SymbolType{
-    ROAD,
-    JUNCTION
+    ROAD = 0,
+    JUNCTION = 1
 };
 
 enum QueryState {
