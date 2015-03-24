@@ -93,7 +93,9 @@ static const double discrete[20][4] = {
 ColorMap::ColorMap() :  light_blue_(Color(0.2f, 0.2f, 1.0f, 1.0f)),
                         dark_gray_(Color(0.3, 0.3, 0.3, 1.0f)),
                         light_gray_(Color(0.85f, 0.85f, 0.85f, 1.0f)),
-                        orange_(Color(1.0f, 0.83f, 0.0f, 0.3f)),
+                        yellow_(Color(1.0f, 1.0f, 0.0f, 1.0f)),
+                        orange_(Color(1.0f, 0.83f, 0.0f, 1.0f)),
+                        pink_(Color(1.0f, 0.51f, 0.9f, 1.0f)),
                         red_(Color(1.0f, 0.0f, 0.0f, 1.0f)),
                         blue_(Color(0.0f, 0.0f, 1.0f, 1.0f)),
                         green_(Color(0.0f, 1.0f, 0.0f, 1.0f)),
@@ -130,12 +132,17 @@ const Color& ColorMap::getNamedColor(NamedColor named_color)
         case LIGHT_GRAY:
             return light_gray_;
             break;
+        case YELLOW:
+            return yellow_;
+            break;
         case ORANGE:
             return orange_;
         case GREEN:
             return green_;
         case RED:
             return red_;
+        case PINK:
+            return pink_;
         case BLUE:
             return blue_;
         // Query Init Color

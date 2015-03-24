@@ -169,6 +169,109 @@ float deltaHeading1MinusHeading2(float heading1, float heading2){
     
 }
 
+Eigen::Vector2d headingTo2dVector(const int heading){
+    if (heading < 0 || heading > 360) {
+        cout << "Error when converting heading to 2d vector. Invalid input.!" << endl;
+        return Eigen::Vector2d(0.0f, 0.0f);
+    }
+    
+    float heading_in_radius = heading * PI / 180.0f;
+    
+    return Eigen::Vector2d(cos(heading_in_radius),
+                           sin(heading_in_radius));
+}
+
+Eigen::Vector3d headingTo3dVector(const int heading){
+    if (heading < 0 || heading > 360) {
+        cout << "Error when converting heading to 3d vector. Invalid input.!" << endl;
+        return Eigen::Vector3d(0.0f, 0.0f, 0.0f);
+    }
+    
+    float heading_in_radius = heading * PI / 180.0f;
+    
+    return Eigen::Vector3d(cos(heading_in_radius),
+                           sin(heading_in_radius),
+                           0.0f);
+}
+
+int vector2dToHeading(const Eigen::Vector2d vec){
+    Eigen::Vector2d tmp_vec(vec);
+   
+    float length = tmp_vec.norm();
+    
+    if(length < 1e-3){
+        // very small vector
+        cout << "Warning (from vectorToHeading2d): encountered zero vector when converting to heading." << endl;
+        return 0;
+    }
+    
+    tmp_vec /= length;
+    float cos_value = tmp_vec[0];
+    if (cos_value > 1.0f) {
+        cos_value = 1.0f;
+    }
+    if (cos_value < -1.0f) {
+        cos_value = -1.0f;
+    }
+    
+    int angle = floor(acos(cos_value) * 180.0f / PI);
+    
+    if (tmp_vec[1] < 0) {
+        angle = 360 - angle;
+    }
+    
+    return angle;
+}
+
+int vector3dToHeading(const Eigen::Vector3d vec){
+    Eigen::Vector3d tmp_vec(vec);
+    
+    float length = tmp_vec.norm();
+    
+    if(length < 1e-3){
+        // very small vector
+        cout << "Warning (from vectorToHeading3d): encountered zero vector when converting to heading." << endl;
+        return 0;
+    }
+
+    tmp_vec /= length;
+    float cos_value = tmp_vec[0];
+    if (cos_value > 1.0f) {
+        cos_value = 1.0f;
+    }
+    if (cos_value < -1.0f) {
+        cos_value = -1.0f;
+    }
+    
+    int angle = floor(acos(cos_value) * 180.0f / PI);
+    
+    if (tmp_vec[1] < 0) {
+        angle = 360 - angle;
+    }
+    
+    return angle;
+}
+
+int increaseHeadingBy(int delta_heading,
+                      const int orig_heading){
+    if (orig_heading < 0 || orig_heading > 360) {
+        cout << "Error (from increaseHeadingBy). Invalid input.!" << endl;
+        return -1;
+    }
+    
+    return (orig_heading + delta_heading) % 360;
+}
+
+int decreaseHeadingBy(int delta_heading,
+                      const int orig_heading){
+    if (orig_heading < 0 || orig_heading > 360) {
+        cout << "Error (from decreaseHeadingBy). Invalid input.!" << endl;
+        return -1;
+    }
+    
+    return (orig_heading - delta_heading + 360) % 360;
+}
+
 void SceneConst::updateAttr(){
     delta_x_ = bound_box_[1] - bound_box_[0];
     delta_y_ = bound_box_[3] - bound_box_[2];

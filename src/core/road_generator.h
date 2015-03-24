@@ -134,8 +134,13 @@ public:
     
     
     bool addInitialRoad();
-    void trace_road();
-    void extend_road(int r_idx, vector<RoadPt>&, vector<bool>& mark_list, bool forward = true);
+    void trace_roads();
+    void extend_road(int r_idx,
+                     vector<int>&,
+                     vector<bool>& mark_list,
+                     bool forward = true);
+    void generateRoadFromPoints(vector<int>& candidate_pt_idxs,
+                                vector<RoadPt>& road);
     
     void detectOverlappingRoadSeeds(vector<RoadSymbol*>& road_list, vector<vector<int>>& result);
     
@@ -171,6 +176,9 @@ private:
     PclPointCloud::Ptr              point_cloud_;
     PclSearchTree::Ptr              search_tree_;
     
+    PclPointCloud::Ptr              tmp_point_cloud_; // a tmp point cloud for ease of use
+    PclSearchTree::Ptr              tmp_search_tree_;
+    
     map<vertex_t, Symbol*>          graph_nodes_;
     symbol_graph_t                  symbol_graph_;
     vector<Symbol*>                 production_string_;
@@ -190,8 +198,8 @@ private:
     vector<int>                     query_q_labels_;
     vector<Vertex>                  query_q_feature_properties_;
     
-    vector<Vertex>                  feature_properties_; // x, y, heading
-    vector<int>                     labels_;
+//    vector<Vertex>                  feature_properties_; // x, y, heading
+//    vector<int>                     labels_;
     
     // Query Q Features and Classifiers
     

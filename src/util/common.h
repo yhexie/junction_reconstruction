@@ -7,6 +7,7 @@
 #include <pcl/search/search.h>
 #include <pcl/common/common.h>
 #include "pcl_wrapper_types.h"
+#include <Eigen/Dense>
 
 #define PI 3.1415926
 using namespace std;
@@ -41,6 +42,9 @@ static const float Z_OSM = -0.35f;
 static const float Z_GRAPH = -0.3f;
 static const float Z_PATH = -0.2f;
 
+    // Debug
+static const float Z_DEBUG = -0.1f;
+
 enum TrajectoryColorMode{
     UNIFORM,
     TRAJECTORY,
@@ -67,6 +71,15 @@ namespace Common{
 void peakDetector(vector<float>& hist, int window, float ratio, vector<int>& peak_idxs,bool is_closed = true);
 
 float deltaHeading1MinusHeading2(float heading1, float heading2);
+Eigen::Vector2d headingTo2dVector(int);
+Eigen::Vector3d headingTo3dVector(int);
+
+int vector2dToHeading(const Eigen::Vector2d);
+int vector3dToHeading(const Eigen::Vector3d);
+int increaseHeadingBy(int delta_heading,
+                      const int orig_heading);
+int decreaseHeadingBy(int delta_heading,
+                      const int orig_heading);
 
 class SceneConst
 {

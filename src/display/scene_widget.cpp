@@ -663,6 +663,13 @@ void SceneWidget::slotRoadGeneratorAddInitialRoad(){
         return;
     }
     
+    if (!road_generator_->hasValidQueryQDecisionFunction()){
+        QMessageBox msgBox;
+        msgBox.setText("Please load query q classifer.");
+        msgBox.exec();
+        return;
+    }
+    
     if (road_generator_->nQueryInitFeatures() == 0 ||
         road_generator_->nQueryInitLabels() == 0){
         QMessageBox msgBox;

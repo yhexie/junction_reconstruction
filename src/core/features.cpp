@@ -8,6 +8,13 @@
 
 #include "features.h"
 #include <fstream>
+#include <pcl/search/impl/flann_search.hpp>
+
+#include <boost/graph/adjacency_list.hpp>
+#include <boost/graph/graph_traits.hpp>
+#include <boost/graph/dijkstra_shortest_paths.hpp>
+#include <boost/property_map/property_map.hpp>
+#include <boost/graph/kruskal_min_spanning_tree.hpp>
 
 void computeQueryInitFeatureAt(float radius, PclPoint& point, Trajectories* trajectories, query_init_sample_type& feature, float canonical_heading){
     // Initialize feature to zero.
@@ -195,17 +202,23 @@ void trainQueryInitClassifier(vector<query_init_sample_type>& samples,
     df = trainer.train(samples, labels);
 }
 
-bool computeQueryQFeatureAt(float radius,
-                            Trajectories* trajectories,
-                            query_q_sample_type& feature,
-                            vector<Vertex>& center_line,
-                            bool is_oneway,
-                            bool grow_backward){
-    // Heading & speed distribution (32) + traj point angle distribution (8)
+void computeConsistentPointSet(float radius,
+                               Trajectories* trajectories,
+                               vector<Vertex>& center_line,
+                               set<int>& candidate_point_set,
+                               bool is_oneway,
+                               bool grow_backward
+                               ){
+    candidate_point_set.clear();
+    
+    // (R, theta)distribution of consistent trajectories points + intersection distribution for points that have bigger than 7.5 degree heading diff.
     if (center_line.size() < 2) {
         cout << "size less than 2" << endl;
-        return false;
+        return;
     }
+    
+    PclPointCloud::Ptr& data = trajectories->data();
+    PclSearchTree::Ptr& tree = trajectories->tree();
     
     PclPoint orig_pt;
     if (grow_backward) {
@@ -228,105 +241,18 @@ bool computeQueryQFeatureAt(float radius,
                              0.0f);
     
     // Feature parameters
-    float HEADING_THRESHOLD = 15.0f;
-    float MAX_DIST_TO_ROAD_CENTER = 0.5f * radius; // in meters
-    float DELTA_T_EXTENSION = 30.0f; // in seconds. Include points that extend current point by at most this value.
-    float MAX_DIST_TO_ORIGIN = 100.0f; // in meters
-    
-    PclPointCloud::Ptr& data = trajectories->data();
-    PclSearchTree::Ptr& tree = trajectories->tree();
-    
-    // Heading histogram parameters
-    int N_HEADING_BINS = 8;
-    float DELTA_HEADING_BIN = 360.0f / N_HEADING_BINS;
-    
-    // Speed histogram
-    int N_SPEED_BINS = 4;
-    float MAX_LOW_SPEED = 5.0f; // meter per second
-    float MAX_MID_LOW_SPEED = 10.0f; // meter per second
-    float MAX_MID_HIGH_SPEED = 20.0f; // meter per second
-    
-    // Consistent points angle distribution
-    int N_ANGLE_BINS = 8;
-    float delta_angle_bin = 180.0f / N_ANGLE_BINS;
-    
-    // Point density histogram parameters
-    float SEARCH_RADIUS = radius; // in meters
-    
-    vector<int> k_nearby_indices;
-    vector<float> k_nearby_dist_sqrs;
-    tree->radiusSearch(orig_pt,
-                       SEARCH_RADIUS,
-                       k_nearby_indices,
-                       k_nearby_dist_sqrs);
-    
-    if (k_nearby_indices.size() < 5) {
-        // No nearby GPS point, return false
-        return false;
-    }
-    
-    // Speed and Heading Histogram
-    vector<double> speed_heading_hist(N_HEADING_BINS*N_SPEED_BINS, 0.0f);
-    int canonical_heading = orig_pt.head;
-    float canonical_heading_in_radius = orig_pt.head * PI / 180.0f;
-    Eigen::Vector3d canonical_dir(cos(canonical_heading_in_radius),
-                                  sin(canonical_heading_in_radius),
-                                  0.0f);
-    
-    for(size_t i = 0; i < k_nearby_indices.size(); ++i){
-        PclPoint& pt = data->at(k_nearby_indices[i]);
-        float speed = pt.speed * 1.0f / 100.0f;
-        float delta_heading = deltaHeading1MinusHeading2(pt.head, canonical_heading) + 0.5f * DELTA_HEADING_BIN;
-        if (delta_heading < 0.0f) {
-            delta_heading += 360.0f;
-        }
-        
-        int heading_bin_idx = floor(delta_heading / DELTA_HEADING_BIN);
-        if (heading_bin_idx == N_HEADING_BINS){
-            heading_bin_idx = N_HEADING_BINS - 1;
-        }
-        
-        int speed_bin_idx = 0;
-        if (speed < MAX_LOW_SPEED) {
-            speed_bin_idx = 0;
-        }
-        else if(speed < MAX_MID_LOW_SPEED){
-            speed_bin_idx = 1;
-        }
-        else if (speed < MAX_MID_HIGH_SPEED){
-            speed_bin_idx = 2;
-        }
-        else{
-            speed_bin_idx = 3;
-        }
-        
-        int bin_idx = speed_bin_idx + heading_bin_idx * N_SPEED_BINS;
-        speed_heading_hist[bin_idx] += 1.0f;
-    }
-    
-    // Normalize speed_heading_hist
-    double cum_sum = 0.0f;
-    for (size_t i = 0; i < speed_heading_hist.size(); ++i) {
-        cum_sum += speed_heading_hist[i];
-    }
-    if (cum_sum > 1.0f) {
-        for (size_t i = 0; i < speed_heading_hist.size(); ++i) {
-            speed_heading_hist[i] /= cum_sum;
-        }
-    }
-    
-    // Store the distributions into feature
-    for (int i = 0; i < speed_heading_hist.size(); ++i) {
-        feature(i) = speed_heading_hist[i];
-    }
+    float HEADING_THRESHOLD         = 15.0f;
+    float MAX_DIST_TO_ROAD_CENTER   = 0.5f * radius; // in meters
+    float DELTA_T_EXTENSION         = 30.0f; // in seconds. Include points that extend current point by at most this value.
+    float MAX_EXTENSION             = 2.0f * radius; // we will trace the centerline for up to this distance to find trajectory fall on this road
     
     // Find trajectories that falls on this road, and compute angle distribution
     PclPoint pt;
-    set<int> candidate_point_set;
     if (grow_backward) {
         // backward direction
-        float cum_length = 0.0f; // the extension length we will look at
+        float cum_length = 0.0f; // the maximum extension length we will look at
         
+        set<int> visited_traj_idxs;
         for (int i = 0; i < center_line.size(); ++i) {
             if (i != 0) {
                 float delta_x = center_line[i].x - center_line[i-1].x;
@@ -352,6 +278,10 @@ bool computeQueryQFeatureAt(float radius,
                 int nearby_pt_idx = k_indices[s];
                 PclPoint& nearby_pt = data->at(nearby_pt_idx);
                 int nearby_traj_idx = nearby_pt.id_trajectory;
+                if (visited_traj_idxs.find(nearby_traj_idx) != visited_traj_idxs.end()) {
+                    // This trajectory has already been visited
+                    continue;
+                }
                 
                 Eigen::Vector3d vec(nearby_pt.x - pt.x,
                                     nearby_pt.y - pt.y,
@@ -378,14 +308,15 @@ bool computeQueryQFeatureAt(float radius,
                     continue;
                 }
                 
-                // Check parallel dist
-                float vertical_dist = dir.cross(vec)[2];
-                if (abs(vertical_dist) > MAX_DIST_TO_ROAD_CENTER) {
+                // Check perpendicular dist
+                float perp_dist = dir.cross(vec)[2];
+                if (abs(perp_dist) > MAX_DIST_TO_ROAD_CENTER) {
                     continue;
                 }
                 
                 // Now, this trajectory is compatible with current road, compute its heading change cross the search region
-                // Find the first point that's outside the region
+                visited_traj_idxs.insert(nearby_traj_idx);
+                
                 bool look_backward = true;
                 if (!is_oneway) {
                     if (delta_heading > 90.0f) {
@@ -422,9 +353,14 @@ bool computeQueryQFeatureAt(float radius,
                             float delta_x = this_pt.x - orig_pt.x;
                             float delta_y = this_pt.y - orig_pt.y;
                             float dist_to_orig = sqrt(delta_x*delta_x + delta_y*delta_y);
-                            if (delta_t < DELTA_T_EXTENSION && dist_to_orig < MAX_DIST_TO_ORIGIN) {
+                            
+                            if (dist_to_orig < 4 * radius &&
+                                delta_t < DELTA_T_EXTENSION) {
                                 // Insert to candidate point set
                                 candidate_point_set.insert(traj_pt_idxs[l]);
+                            }
+                            else{
+                                break;
                             }
                         }
                     }
@@ -448,15 +384,19 @@ bool computeQueryQFeatureAt(float radius,
                             float delta_x = this_pt.x - orig_pt.x;
                             float delta_y = this_pt.y - orig_pt.y;
                             float dist_to_orig = sqrt(delta_x*delta_x + delta_y*delta_y);
-                            if (delta_t < DELTA_T_EXTENSION && dist_to_orig < MAX_DIST_TO_ORIGIN) {
+                            if (dist_to_orig < 4 * radius &&
+                                delta_t < DELTA_T_EXTENSION) {
                                 // Insert to candidate point set
                                 candidate_point_set.insert(traj_pt_idxs[l]);
+                            }
+                            else{
+                                break;
                             }
                         }
                     }
                 }
             }
-            if (cum_length > radius) {
+            if (cum_length > MAX_EXTENSION) {
                 break;
             }
         }
@@ -465,6 +405,7 @@ bool computeQueryQFeatureAt(float radius,
         // forward direction
         float cum_length = 0.0f; // the extension length we will look at
         
+        set<int> visited_traj_idxs;
         for (int i = center_line.size()-1; i >= 0; --i) {
             if (i != center_line.size() - 1) {
                 float delta_x = center_line[i].x - center_line[i+1].x;
@@ -491,6 +432,11 @@ bool computeQueryQFeatureAt(float radius,
                 PclPoint& nearby_pt = data->at(nearby_pt_idx);
                 int nearby_traj_idx = nearby_pt.id_trajectory;
                 
+                if (visited_traj_idxs.find(nearby_traj_idx) != visited_traj_idxs.end()) {
+                    // This trajectory has already been visited
+                    continue;
+                }
+                
                 Eigen::Vector3d vec(nearby_pt.x - pt.x,
                                     nearby_pt.y - pt.y,
                                     0.0f);
@@ -516,14 +462,16 @@ bool computeQueryQFeatureAt(float radius,
                     continue;
                 }
                 
-                // Check parallel dist
-                float vertical_dist = dir.cross(vec)[2];
-                if (abs(vertical_dist) > MAX_DIST_TO_ROAD_CENTER) {
+                // Check perpendicular dist
+                float perp_dist = dir.cross(vec)[2];
+                if (abs(perp_dist) > MAX_DIST_TO_ROAD_CENTER) {
                     continue;
                 }
                 
                 // Now, this trajectory is compatible with current road, compute its heading change cross the search region
                 // Find the first point that's outside the region
+                visited_traj_idxs.insert(nearby_traj_idx);
+                
                 bool look_forward = true;
                 if (!is_oneway) {
                     if (delta_heading > 90.0f) {
@@ -543,7 +491,7 @@ bool computeQueryQFeatureAt(float radius,
                     bool passed_query_point = false;
                     for (int l = id_sample; l < traj_pt_idxs.size(); ++l) {
                         PclPoint& this_pt = data->at(traj_pt_idxs[l]);
-                    
+                        
                         Eigen::Vector3d this_vec(this_pt.x - orig_pt.x,
                                                  this_pt.y - orig_pt.y,
                                                  0.0f);
@@ -560,9 +508,13 @@ bool computeQueryQFeatureAt(float radius,
                             float delta_x = this_pt.x - orig_pt.x;
                             float delta_y = this_pt.y - orig_pt.y;
                             float dist_to_orig = sqrt(delta_x*delta_x + delta_y*delta_y);
-                            if (delta_t < DELTA_T_EXTENSION && dist_to_orig < MAX_DIST_TO_ORIGIN) {
+                            if (dist_to_orig < 4 * radius &&
+                                delta_t < DELTA_T_EXTENSION) {
                                 // Insert to candidate point set
                                 candidate_point_set.insert(traj_pt_idxs[l]);
+                            }
+                            else{
+                                break;
                             }
                         }
                     }
@@ -586,22 +538,98 @@ bool computeQueryQFeatureAt(float radius,
                             float delta_x = this_pt.x - orig_pt.x;
                             float delta_y = this_pt.y - orig_pt.y;
                             float dist_to_orig = sqrt(delta_x*delta_x + delta_y*delta_y);
-                            if (delta_t < DELTA_T_EXTENSION && dist_to_orig < MAX_DIST_TO_ORIGIN) {
+                            if (dist_to_orig < 4 * radius &&
+                                delta_t < DELTA_T_EXTENSION) {
                                 // Insert to candidate point set
                                 candidate_point_set.insert(traj_pt_idxs[l]);
+                            }
+                            else{
+                                break;
                             }
                         }
                     }
                 }
             }
-            if (cum_length > radius) {
+            if (cum_length > MAX_EXTENSION) {
                 break;
             }
         }
     }
+}
+
+bool computeQueryQFeatureAt(float radius,
+                            Trajectories* trajectories,
+                            query_q_sample_type& feature,
+                            vector<Vertex>& center_line,
+                            bool is_oneway,
+                            bool grow_backward){
+    // (R, theta)distribution of consistent trajectories points + intersection distribution for points that have bigger than 7.5 degree heading diff.
+    if (center_line.size() < 2) {
+        cout << "size less than 2" << endl;
+        return false;
+    }
     
-    // Now candidate points are stored in candidate_point_set, we can start computing angle distributions of these points w.r.t. the original query point
-    vector<double> angle_hist(N_ANGLE_BINS, 0.0f);
+    PclPointCloud::Ptr& data = trajectories->data();
+    
+    PclPoint orig_pt;
+    if (grow_backward) {
+        orig_pt.setCoordinate(center_line.front().x,
+                              center_line.front().y,
+                              0.0f);
+        orig_pt.head = floor(center_line.front().z);
+        
+    }
+    else{
+        orig_pt.setCoordinate(center_line.back().x,
+                              center_line.back().y,
+                              0.0f);
+        orig_pt.head = floor(center_line.back().z);
+    }
+    
+    float orig_heading_in_radius = orig_pt.head * PI / 180.0f;
+    Eigen::Vector3d orig_dir(cos(orig_heading_in_radius),
+                             sin(orig_heading_in_radius),
+                             0.0f);
+    
+    // Feature parameters
+        // Heading histogram parameters
+    int N_HEADING_BINS = 8;
+    float DELTA_HEADING_BIN = 360.0f / N_HEADING_BINS;
+    
+        // Speed histogram
+    int N_SPEED_BINS = 4;
+    float MAX_LOW_SPEED = 5.0f; // meter per second
+    float MAX_MID_LOW_SPEED = 10.0f; // meter per second
+    float MAX_MID_HIGH_SPEED = 20.0f; // meter per second
+    
+        // Second part of the feature: intersection distribution to the canonical line, positive ahead
+    int     N_INTERSECTION_BIN      = 12;
+    float   delta_intersection_bin  = 10.0f; // in meters
+    
+    // Find trajectories that falls on this road, and compute angle distribution
+    PclPoint pt;
+    set<int> candidate_point_set;
+    
+    computeConsistentPointSet(radius,
+                              trajectories,
+                              center_line,
+                              candidate_point_set,
+                              is_oneway,
+                              grow_backward);
+    
+    // Now candidate points are stored in candidate_point_set, we can start computing angle distributions of these points w.r.t. the original query point.
+    // Parameters:
+        // N_ANGLE_BINS, delta_angle_bin, N_R_BINS, delta_r_bin
+        // N_INTERSECTION_BIN, delta_intersection_bin, MIN_HEADING_DIFF
+    
+    if(candidate_point_set.size() < 5){
+        return false;
+    }
+    
+    int N_FIRST_PART_BINS = N_HEADING_BINS * N_SPEED_BINS;
+    vector<double> speed_heading_hist(N_FIRST_PART_BINS, 0.0f);
+    vector<double> snd_part_hist(N_INTERSECTION_BIN, 0.0f);
+    
     for (set<int>::iterator it = candidate_point_set.begin(); it != candidate_point_set.end(); ++it) {
         PclPoint& this_pt = data->at(*it);
         Eigen::Vector3d this_vec(this_pt.x - orig_pt.x,
@@ -615,42 +643,329 @@ bool computeQueryQFeatureAt(float radius,
             this_vec *= 0.0f;
         }
         
-        float dot_value = abs(this_vec.dot(orig_dir));
+        Eigen::Vector3d corrected_orig_dir = orig_dir;
+        
+        // corrected_orig_dir is the cannonical direction
+        if (grow_backward) {
+            corrected_orig_dir *= -1.0f;
+        }
+        
+        float dot_value = abs(this_vec.dot(corrected_orig_dir));
         if(dot_value > 1.0f){
             dot_value = 1.0f;
         }
-        float this_pt_angle = acos(dot_value) * 180.0f / PI;
-        float cross_value = orig_dir.cross(this_vec)[2];
-        if (cross_value > 0) {
-            this_pt_angle = 180.0f - this_pt_angle;
+        
+        // Compute speed heading histogram
+        float speed = this_pt.speed * 1.0f / 100.0f;
+        float delta_heading = deltaHeading1MinusHeading2(this_pt.head, orig_pt.head);
+        
+        if (delta_heading < 0.0f) {
+            delta_heading += 360.0f;
         }
         
-        int angle_bin_idx = floor(this_pt_angle / delta_angle_bin);
-        if(angle_bin_idx == N_ANGLE_BINS){
-            angle_bin_idx = N_ANGLE_BINS - 1;
+        int heading_bin_idx = floor(delta_heading / DELTA_HEADING_BIN);
+        if (heading_bin_idx >= N_HEADING_BINS) {
+            heading_bin_idx = N_HEADING_BINS - 1;
         }
-        angle_hist[angle_bin_idx] += 1.0f;
+        
+        int speed_bin_idx = 0;
+        if (speed < MAX_LOW_SPEED) {
+            speed_bin_idx = 0;
+        }
+        else if(speed < MAX_MID_LOW_SPEED){
+            speed_bin_idx = 1;
+        }
+        else if (speed < MAX_MID_HIGH_SPEED){
+            speed_bin_idx = 2;
+        }
+        else{
+            speed_bin_idx = 3;
+        }
+        
+        int bin_idx = speed_bin_idx + heading_bin_idx * N_SPEED_BINS;
+        speed_heading_hist[bin_idx] += 1.0f;
+        
+        // Compute the first part of the descriptor
+        float cross_value = corrected_orig_dir.cross(this_vec)[2];
+        
+        // Compute the second part of the descriptor
+        float projected_x = -1.0f * this_vec_length * cross_value;
+        float projected_y = this_vec_length * this_vec.dot(corrected_orig_dir);
+        
+        float this_pt_heading_in_radius = this_pt.head * PI / 180.0f;
+        Eigen::Vector3d this_pt_heading_dir(cos(this_pt_heading_in_radius),
+                                            sin(this_pt_heading_in_radius),
+                                            0.0f);
+        float cos_theta = this_pt_heading_dir.dot(corrected_orig_dir);
+        float sin_theta = sqrt(1.0f - cos_theta*cos_theta);
+        
+        float infinity = 1e6;
+        float y_intersect = 0.0f;
+        if (abs(sin_theta) < 1e-3) {
+            y_intersect = infinity;
+        }
+        else{
+            float l = abs(projected_x) * cos_theta / sin_theta;
+            y_intersect = projected_y - l;
+        }
+        
+        int tmp_proj_idx = floor(abs(y_intersect) / delta_intersection_bin);
+        int snd_part_idx = -1;
+        if (tmp_proj_idx < 0.5f * N_INTERSECTION_BIN) {
+            if (y_intersect > 0) {
+                snd_part_idx = tmp_proj_idx + (N_INTERSECTION_BIN / 2);
+            }
+            else{
+                snd_part_idx = (N_INTERSECTION_BIN / 2) - tmp_proj_idx;
+            }
+            if (snd_part_idx < 0) {
+                snd_part_idx = 0;
+            }
+            if (snd_part_idx >= N_INTERSECTION_BIN) {
+                snd_part_idx = N_INTERSECTION_BIN - 1;
+            }
+            
+            snd_part_hist[snd_part_idx] += 1.0f;
+        }
     }
     
-    // Normalize angle_hist
+    // Normalize speed heading histogram
+    float cum_sum = 0.0f;
+    for (size_t i = 0; i < speed_heading_hist.size(); ++i) {
+        cum_sum += speed_heading_hist[i];
+    }
+    if (cum_sum > 1e-3) {
+        for (size_t i = 0; i < speed_heading_hist.size(); ++i) {
+            speed_heading_hist[i] /= cum_sum;
+        }
+    }
+    
+    // Normalize snd_part_hist
     cum_sum = 0.0f;
-    for (size_t i = 0; i < angle_hist.size(); ++i) {
-        cum_sum += angle_hist[i];
+    for (size_t i = 0; i < snd_part_hist.size(); ++i) {
+        cum_sum += snd_part_hist[i];
     }
-    if (cum_sum > 1.0f) {
-        for (size_t i = 0; i < angle_hist.size(); ++i) {
-            angle_hist[i] /= cum_sum;
+    if (cum_sum > 1e-3) {
+        for (size_t i = 0; i < snd_part_hist.size(); ++i) {
+            snd_part_hist[i] /= cum_sum;
         }
     }
     
-    // Store angle_hist to feature
-    int start_offset = speed_heading_hist.size();
-    for (int i = 0; i < N_ANGLE_BINS; ++i) {
-        int idx = i + start_offset;
-        feature(idx) = angle_hist[i];
+    // Store speed heading histogram into feature
+    for (int i = 0; i < speed_heading_hist.size(); ++i) {
+        feature(i) = speed_heading_hist[i];
     }
+    
+    // Store snd_part_hist to feature
+//    int start_offset = speed_heading_hist.size();
+//    for (int i = 0; i < snd_part_hist.size(); ++i) {
+//        int idx = i + start_offset;
+//        feature(idx) = snd_part_hist[i];
+//    }
     
     return true;
+}
+
+bool computeQueryQFeatureAtForVisualization(float radius,
+                                            Trajectories* trajectories,
+                                            query_q_sample_type& feature,
+                                            vector<Vertex>& center_line,
+                                            set<int>& candidate_point_set,
+                                            bool is_oneway,
+                                            bool grow_backward){
+    candidate_point_set.clear();
+    
+    // (R, theta)distribution of consistent trajectories points + intersection distribution for points that have bigger than 7.5 degree heading diff.
+    if (center_line.size() < 2) {
+        cout << "size less than 2" << endl;
+        return false;
+    }
+    
+    computeConsistentPointSet(radius,
+                              trajectories,
+                              center_line,
+                              candidate_point_set,
+                              is_oneway,
+                              grow_backward);
+    
+    return true;
+}
+
+bool myCompare(const pair<int, float>& firstElem, const pair<int, float>& secondElem){
+    return firstElem.second > secondElem.second;
+}
+
+void tJunctionFittingAt(PclPoint& start_point,
+                        set<int>& candidate_set,
+                        Trajectories* trajectories,
+                        vector<Vertex>& points_to_draw,
+                        vector<Color>& point_colors,
+                        vector<Vertex>& line_to_draw,
+                        vector<Color>& line_colors){
+    if(candidate_set.size() == 0){
+        return;
+    }
+    float search_radius = 25.0f;
+    
+    // Initialize point cloud
+    PclPointCloud::Ptr points(new PclPointCloud);
+    PclSearchTree::Ptr search_tree(new pcl::search::FlannSearch<PclPoint>(false));
+    
+    PclPointCloud::Ptr sample_points(new PclPointCloud);
+    PclSearchTree::Ptr sample_search_tree(new pcl::search::FlannSearch<PclPoint>(false));
+    
+    // Add points to point cloud
+    for (set<int>::iterator it = candidate_set.begin(); it != candidate_set.end(); ++it) {
+        PclPoint& pt = trajectories->data()->at(*it);
+        points->push_back(pt);
+    }
+    
+    search_tree->setInputCloud(points);
+    
+    vector<int> is_covered(points->size(), false);
+    
+    float delta = 5.0f; // in meters
+    // Develop the first branch
+    vector<Vertex> first_branch;
+    PclPoint search_pt = start_point;
+    first_branch.push_back(Vertex(search_pt.x, search_pt.y, search_pt.head));
+    while (true) {
+        Eigen::Vector3d start_dir = headingTo3dVector(search_pt.head);
+        Eigen::Vector3d start_perp_dir(-start_dir[1], start_dir[0], 0.0f);
+        Eigen::Vector3d prev_search_pt(search_pt.x, search_pt.y, 0.0f);
+        Eigen::Vector3d tmp_search_pt = prev_search_pt + delta * start_dir;
+        
+        search_pt.x = tmp_search_pt.x();
+        search_pt.y = tmp_search_pt.y();
+        
+        vector<int> k_indices;
+        vector<float> k_dist_sqrs;
+        search_tree->radiusSearch(search_pt, 10.0f, k_indices, k_dist_sqrs);
+        int pt_count = 0;
+        Eigen::Vector3d avg_dir(0.0f, 0.0f, 0.0f);
+        float cum_perp_proj = 0.0f;
+        for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
+            PclPoint& nb_pt = points->at(*it);
+            float delta_heading = abs(deltaHeading1MinusHeading2(nb_pt.head, search_pt.head));
+            if (delta_heading > 90.0f) {
+                delta_heading = 180.0f - delta_heading;
+            }
+            
+            if (delta_heading < 15.0f) {
+                pt_count++;
+                is_covered[*it] = true;
+                // Compute perp projection
+                Eigen::Vector3d vec(nb_pt.x - search_pt.x,
+                                    nb_pt.y - search_pt.y,
+                                    0.0f);
+                Eigen::Vector3d nb_dir = headingTo3dVector(nb_pt.head);
+                float perp_proj = start_dir.cross(vec)[2];
+                cum_perp_proj += perp_proj;
+                
+                float dot_value = start_dir.dot(nb_dir);
+                if (dot_value < 0) {
+                    avg_dir -= nb_dir;
+                }
+                else{
+                    avg_dir += nb_dir;
+                }
+            }
+        }
+        
+        if (pt_count == 0) {
+            break;
+        }
+        
+        avg_dir.normalize();
+        cum_perp_proj /= pt_count;
+        Eigen::Vector3d new_pt1 = tmp_search_pt + cum_perp_proj * start_perp_dir;
+        Eigen::Vector3d new_pt2 = prev_search_pt + delta * avg_dir;
+        Eigen::Vector3d new_pt = 0.5 * (new_pt1 + new_pt2);
+        search_pt.x = new_pt.x();
+        search_pt.y = new_pt.y();
+        int new_heading = vector3dToHeading(avg_dir);
+        search_pt.head = new_heading;
+        first_branch.push_back(Vertex(search_pt.x, search_pt.y, search_pt.head));
+    }
+    
+    // Compute second branch
+    vector<Vertex> second_branch;
+    vector<float> votings(first_branch.size(), 0.0f);
+    float cum_voting = 0.0f;
+    for (int i = 0; i < points->size(); ++i) {
+        if (is_covered[i]) {
+            continue;
+        }
+        
+        PclPoint& pt = points->at(i);
+        Eigen::Vector3d pt_dir = headingTo3dVector(pt.head);
+        for (int j = 0; j < first_branch.size(); ++j) {
+            Vertex& v = first_branch[j];
+            Eigen::Vector3d vec(pt.x - v.x,
+                                pt.y - v.y,
+                                0.0f);
+            float vec_length = vec.norm();
+            if (vec_length > 1e-3) {
+                vec /= vec_length;
+                float dot_value = abs(vec.dot(pt_dir));
+                if (dot_value > 0.8f) {
+                    votings[j] += dot_value;
+                    cum_voting += dot_value;
+                }
+            }
+        }
+    }
+    
+    if (cum_voting > 1.0f) {
+        // Has second branch
+        int max_idx = -1;
+        float max_value = -1.0f;
+        for (int i = 0; i < votings.size(); ++i) {
+            if (max_value < votings[i]) {
+                max_value = votings[i];
+                max_idx = i;
+            }
+        }
+        
+        second_branch.push_back(first_branch[max_idx]);
+        Eigen::Vector3d dir = headingTo3dVector(floor(first_branch[max_idx].z));
+        
+        points_to_draw.push_back(SceneConst::getInstance().normalize(first_branch[max_idx].x, first_branch[max_idx].y, Z_DEBUG));
+        point_colors.push_back(ColorMap::getInstance().getNamedColor(ColorMap::PINK));
+        
+        for(int i = 0; i < points->size(); ++i){
+            if(is_covered[i]){
+                continue;
+            }
+            
+            PclPoint& pt = points->at(i);
+            Eigen::Vector3d vec(pt.x - first_branch[max_idx].x,
+                                pt.y - first_branch[max_idx].y,
+                                0.0f);
+            float cross_value = dir.cross(vec)[2];
+            if (cross_value > 0) {
+                points_to_draw.push_back(SceneConst::getInstance().normalize(pt.x, pt.y, Z_DEBUG));
+                point_colors.push_back(ColorMap::getInstance().getNamedColor(ColorMap::GREEN));
+            }
+            else{
+                points_to_draw.push_back(SceneConst::getInstance().normalize(pt.x, pt.y, Z_DEBUG));
+                point_colors.push_back(ColorMap::getInstance().getNamedColor(ColorMap::ORANGE));
+            }
+        }
+    }
+    
+    
+    for(int i = 1; i < first_branch.size(); ++i){
+        Vertex& v1 = first_branch[i-1];
+        Vertex& v2 = first_branch[i];
+        line_to_draw.push_back(SceneConst::getInstance().normalize(v1.x, v1.y, Z_DEBUG));
+        line_colors.push_back(ColorMap::getInstance().getNamedColor(ColorMap::YELLOW));
+        line_to_draw.push_back(SceneConst::getInstance().normalize(v2.x, v2.y, Z_DEBUG));
+        line_colors.push_back(ColorMap::getInstance().getNamedColor(ColorMap::YELLOW));
+    }
+    return;
+    
+    sample_search_tree->setInputCloud(sample_points);
 }
 
 void trainQueryQClassifier(vector<query_q_sample_type>& samples,
@@ -678,8 +993,9 @@ void trainQueryQClassifier(vector<query_q_sample_type>& samples,
     
     query_q_trainer trainer;
     
-//    for(double gamma = 0.2; gamma <= 0.3; gamma += 0.05){
-//        for (double nu = 0.05; nu <= 0.4; nu += 0.05) {
+    // Cross validation portion
+//    for(double gamma = 0.1; gamma <= 0.31; gamma += 0.1){
+//        for (double nu = 0.1; nu <= 0.3; nu += 0.05) {
 //            trainer.set_kernel(query_q_rbf_kernel(gamma));
 //            trainer.set_nu(nu);
 //            cout << "gamma: " << gamma << "    nu: " << nu;
@@ -687,9 +1003,12 @@ void trainQueryQClassifier(vector<query_q_sample_type>& samples,
 //            << dlib::cross_validate_trainer(trainer, samples, labels, 3);
 //        }
 //    }
+//    return;
+    // End of: Cross validation portion
     
     double gamma = 0.3f;
     double nu = 0.2f;
+    
     trainer.set_kernel(query_q_rbf_kernel(gamma));
     trainer.set_nu(nu);
     
@@ -1141,6 +1460,8 @@ void QueryQFeatureSelector::extractTrainingSamplesFromMap(float radius, OpenStre
         return;
     }
     
+    bool DEBUG_MODE = true;
+    
     features_.clear();
     feature_locs_.clear();
     feature_is_front_.clear();
@@ -1156,7 +1477,100 @@ void QueryQFeatureSelector::extractTrainingSamplesFromMap(float radius, OpenStre
     
     PclPointCloud::Ptr& map_sample_points = osmMap_->map_point_cloud();
     
-    // Compute Query Init features for each map sample point
+    if (DEBUG_MODE) {
+        int pt_idx = tmp_;
+        bool forward = true;
+        PclPoint& pt = map_sample_points->at(pt_idx);
+        int way_id = pt.id_trajectory;
+        
+        // Compute center line for this road
+        vector<int>& way_point_idxs = osmMap_->way_point_idxs()[way_id];
+        int this_point_idx = static_cast<int>(pt.car_id);
+        if (forward) {
+            // Compute Forward Direction Feature and labels
+            vector<Vertex> fwd_center_line;
+            for (int s = 0; s <= this_point_idx; ++s) {
+                int prev_pt_idx = way_point_idxs[s];
+                PclPoint& prev_pt = map_sample_points->at(prev_pt_idx);
+                
+                fwd_center_line.push_back(Vertex(prev_pt.x, prev_pt.y, prev_pt.head));
+                
+                feature_vertices_.push_back(SceneConst::getInstance().normalize(prev_pt.x, prev_pt.y, Z_FEATURES));
+                feature_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::RED));
+            }
+            
+            if (fwd_center_line.size() > 2) {
+                query_q_sample_type fwd_feature;
+                set<int> candidate_point_set;
+                bool has_feature = computeQueryQFeatureAtForVisualization(radius,
+                                                          trajectories_,
+                                                          fwd_feature,
+                                                          fwd_center_line,
+                                                        candidate_point_set,
+                                                          osmMap_->ways()[way_id].isOneway());
+                if (!has_feature) {
+                    return;
+                }
+                
+                for(set<int>::iterator it = candidate_point_set.begin(); it != candidate_point_set.end(); ++it){
+                    PclPoint& pt = trajectories_->data()->at(*it);
+                    feature_vertices_.push_back(SceneConst::getInstance().normalize(pt.x, pt.y, Z_FEATURES));
+                    feature_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::BLUE));
+                }
+                
+                feature_headings_.clear();
+                feature_heading_colors_.clear();
+//                tJunctionFittingAt(pt, candidate_point_set, trajectories_, feature_vertices_, feature_colors_);
+//                tJunctionFittingAt(pt, candidate_point_set, trajectories_, feature_headings_, feature_heading_colors_);
+                tJunctionFittingAt(pt,
+                                   candidate_point_set,
+                                   trajectories_,
+                                   feature_vertices_,
+                                   feature_colors_,
+                                   feature_headings_,
+                                   feature_heading_colors_);
+            }
+        }
+        else{
+            vector<Vertex> bwd_center_line;
+            for (int s = this_point_idx; s < way_point_idxs.size(); ++s) {
+                int prev_pt_idx = way_point_idxs[s];
+                PclPoint& prev_pt = map_sample_points->at(prev_pt_idx);
+                
+                bwd_center_line.push_back(Vertex(prev_pt.x, prev_pt.y, prev_pt.head));
+                
+                feature_vertices_.push_back(SceneConst::getInstance().normalize(prev_pt.x, prev_pt.y, Z_FEATURES));
+                feature_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::RED));
+            }
+            
+            if (bwd_center_line.size() > 2) {
+                query_q_sample_type bwd_feature;
+                set<int> candidate_point_set;
+                bool has_feature = computeQueryQFeatureAtForVisualization           (radius,
+                    trajectories_,
+                    bwd_feature,
+                    bwd_center_line,
+                    candidate_point_set,
+                    osmMap_->ways()[way_id].isOneway(),
+                    true);
+                
+                if (!has_feature) {
+                    return;
+                }
+                
+                for(set<int>::iterator it = candidate_point_set.begin(); it != candidate_point_set.end(); ++it){
+                    PclPoint& pt = trajectories_->data()->at(*it);
+                    feature_vertices_.push_back(SceneConst::getInstance().normalize(pt.x, pt.y, Z_FEATURES));
+                    feature_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::BLUE));
+                }
+            }
+        }
+        
+        tmp_++;
+        return;
+    }
+    
+    // Compute Query Q features for each map sample point
     for (size_t pt_idx = 0; pt_idx < map_sample_points->size(); ++pt_idx) {
         PclPoint& pt = map_sample_points->at(pt_idx);
         int way_id = pt.id_trajectory;
@@ -1227,7 +1641,7 @@ void QueryQFeatureSelector::extractTrainingSamplesFromMap(float radius, OpenStre
                                                       bwd_feature,
                                                       bwd_center_line,
                                                       osmMap_->ways()[way_id].isOneway(),
-                                   true);
+                                                      true);
             if (!has_feature) {
                 continue;
             }
@@ -1292,7 +1706,7 @@ void QueryQFeatureSelector::computeLabelAt(float radius,
                 return;
             }
             
-            if(cum_dist > 0.5f * radius){
+            if(cum_dist > 0.2f * radius){
                 break;
             }
         }
@@ -1319,7 +1733,7 @@ void QueryQFeatureSelector::computeLabelAt(float radius,
                 return;
             }
             
-            if(cum_dist > 0.5f * radius){
+            if(cum_dist > 0.2f * radius){
                 break;
             }
         }
@@ -1373,6 +1787,8 @@ bool QueryQFeatureSelector::loadTrainingSamples(const string& filename){
     getline(input, str);
     int n_features = stoi(str);
     
+    int n_grow_label = 0;
+    int n_branch_label = 0;
     for(int i = 0; i < n_features; ++i){
         getline(input, str);
         int label = stoi(str);
@@ -1414,6 +1830,13 @@ bool QueryQFeatureSelector::loadTrainingSamples(const string& filename){
         features_.push_back(new_feature);
         labels_.push_back(label);
         
+        if (label == R_GROW) {
+            n_grow_label++;
+        }
+        else{
+            n_branch_label++;
+        }
+        
         // Visualization
         if (is_front == 1) {
             feature_headings_.push_back(SceneConst::getInstance().normalize(loc_x, loc_y, Z_FEATURES));
@@ -1447,6 +1870,10 @@ bool QueryQFeatureSelector::loadTrainingSamples(const string& filename){
     }
     
     input.close();
+    
+    cout << "Query Q samples loaded." << endl;
+    cout << "\tTotally " << n_branch_label + n_grow_label << " samples, " << n_branch_label << " branch labels, " << n_grow_label << " grow labels." << endl;
+    
     return true;
 }
 

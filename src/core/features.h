@@ -29,7 +29,7 @@ typedef dlib::one_vs_one_decision_function<query_init_ovo_trainer, dlib::decisio
 //typedef dlib::one_vs_all_trainer<dlib::any_trainer<query_init_sample_type> > query_init_ova_trainer;
 //typedef dlib::one_vs_all_decision_function<query_init_ova_trainer, dlib::decision_function<query_init_rbf_kernel> > query_init_decision_function;
 
-typedef dlib::matrix<double, 40, 1> query_q_sample_type;
+typedef dlib::matrix<double, 32, 1> query_q_sample_type;
 typedef dlib::radial_basis_kernel<query_q_sample_type> query_q_rbf_kernel;
 //typedef dlib::svm_c_trainer<query_q_rbf_kernel> query_q_trainer;
 typedef dlib::svm_nu_trainer<query_q_rbf_kernel> query_q_trainer;
@@ -58,12 +58,39 @@ void trainQueryInitClassifier(vector<query_init_sample_type>& samples,
                                  vector<int>& labels,
                                  query_init_decision_function& df);
 
+void computeConsistentPointSet(float radius,
+                               Trajectories* trajectories,
+                               vector<Vertex>& center_line,
+                               set<int>& candidate_point_set,
+                               bool is_oneway = true,
+                               bool grow_backward = false);
+
 bool computeQueryQFeatureAt(float radius,
                             Trajectories* trajectories,
                             query_q_sample_type& new_feature,
                             vector<Vertex>& center_line,
                             bool is_oneway = true,
                             bool grow_backward = false);
+
+/*
+    computeQueryQFeatureAtForVisualization: This is exactly the same first part of computeQueryQFeatureAt. This function will only be used in debuging mode, where I can see how the candidate_set look like.
+ */
+bool computeQueryQFeatureAtForVisualization(float radius,
+                                            Trajectories* trajectories,
+                                            query_q_sample_type& new_feature,
+                                            vector<Vertex>& center_line,
+                                            set<int>& candidate_set,
+                                            bool is_oneway = true,
+                                            bool grow_backward = false);
+
+// MAP estimation Junction Predictor
+void tJunctionFittingAt(PclPoint& start_point,
+                        set<int>& candidate_set,
+                        Trajectories* trajectories,
+                        vector<Vertex>& points_to_draw,
+                        vector<Color>& point_colors,
+                        vector<Vertex>& line_to_draw,
+                        vector<Color>& line_colors);
 
 void trainQueryQClassifier(vector<query_q_sample_type>& samples,
                               vector<int>& labels,
@@ -141,7 +168,6 @@ private:
     Trajectories*                       trajectories_;
     OpenStreetMap*                      osmMap_;
     
-    int                                 tmp_;
     float                               ARROW_LENGTH_;
     vector<query_q_sample_type>         features_;
     vector<Vertex>                      feature_locs_;
@@ -154,6 +180,9 @@ private:
     vector<Color>                       feature_colors_;
     vector<Vertex>                      feature_headings_;
     vector<Color>                       feature_heading_colors_;
+    
+    // For debuging
+    int                                 tmp_;
 };
 
 #endif /* defined(__junction_reconstruction__features__) */

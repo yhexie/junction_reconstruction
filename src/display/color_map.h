@@ -22,8 +22,10 @@ public:
                     LIGHT_BLUE,
                     DARK_GRAY,
                     LIGHT_GRAY,
+                    YELLOW,
                     ORANGE,
                     RED,
+                    PINK,
                     BLUE,
                     GREEN,
                     // Query Init Color
@@ -50,8 +52,10 @@ private:
     Color light_blue_;
     Color dark_gray_;
     Color light_gray_;
+    Color yellow_;
     Color orange_;
     Color red_;
+    Color pink_;
     Color blue_;
     Color green_;
     
