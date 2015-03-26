@@ -244,7 +244,7 @@ void computeConsistentPointSet(float radius,
     float HEADING_THRESHOLD         = 15.0f;
     float MAX_DIST_TO_ROAD_CENTER   = 0.5f * radius; // in meters
     float DELTA_T_EXTENSION         = 30.0f; // in seconds. Include points that extend current point by at most this value.
-    float MAX_EXTENSION             = 2.0f * radius; // we will trace the centerline for up to this distance to find trajectory fall on this road
+    float MAX_EXTENSION             = 3.0f * radius; // we will trace the centerline for up to this distance to find trajectory fall on this road
     
     // Find trajectories that falls on this road, and compute angle distribution
     PclPoint pt;
@@ -396,9 +396,9 @@ void computeConsistentPointSet(float radius,
                     }
                 }
             }
-            if (cum_length > MAX_EXTENSION) {
-                break;
-            }
+//            if (cum_length > MAX_EXTENSION) {
+//                break;
+//            }
         }
     }
     else{
@@ -550,9 +550,9 @@ void computeConsistentPointSet(float radius,
                     }
                 }
             }
-            if (cum_length > MAX_EXTENSION) {
-                break;
-            }
+//            if (cum_length > MAX_EXTENSION) {
+//                break;
+//            }
         }
     }
 }
@@ -791,28 +791,30 @@ bool computeQueryQFeatureAtForVisualization(float radius,
     return true;
 }
 
-bool myCompare(const pair<int, float>& firstElem, const pair<int, float>& secondElem){
-    return firstElem.second > secondElem.second;
-}
-
-void tJunctionFittingAt(PclPoint& start_point,
-                        set<int>& candidate_set,
-                        Trajectories* trajectories,
-                        vector<Vertex>& points_to_draw,
-                        vector<Color>& point_colors,
-                        vector<Vertex>& line_to_draw,
-                        vector<Color>& line_colors){
+bool branchPrediction(float               search_radius,
+                      RoadPt&             start_point,
+                      set<int>&           candidate_set,
+                      Trajectories*       trajectories,
+                      RoadPt&             junction_loc,
+                      vector<vector<RoadPt> >&     branches,
+                      bool                grow_backward){
+    
+    /*
+     Predict if we need to do branch.
+     - return value:
+     true: branch
+     false: grow
+     */
+    
     if(candidate_set.size() == 0){
-        return;
+        return false;
     }
-    float search_radius = 25.0f;
+    
+    bool is_oneway = start_point.is_oneway;
     
     // Initialize point cloud
     PclPointCloud::Ptr points(new PclPointCloud);
     PclSearchTree::Ptr search_tree(new pcl::search::FlannSearch<PclPoint>(false));
-    
-    PclPointCloud::Ptr sample_points(new PclPointCloud);
-    PclSearchTree::Ptr sample_search_tree(new pcl::search::FlannSearch<PclPoint>(false));
     
     // Add points to point cloud
     for (set<int>::iterator it = candidate_set.begin(); it != candidate_set.end(); ++it) {
@@ -824,11 +826,17 @@ void tJunctionFittingAt(PclPoint& start_point,
     
     vector<int> is_covered(points->size(), false);
     
-    float delta = 5.0f; // in meters
-    // Develop the first branch
-    vector<Vertex> first_branch;
-    PclPoint search_pt = start_point;
-    first_branch.push_back(Vertex(search_pt.x, search_pt.y, search_pt.head));
+    float delta = 10.0f; // in meters
+    // Trace the first branch
+    vector<RoadPt> first_branch;
+    PclPoint search_pt;
+    search_pt.setCoordinate(start_point.x, start_point.y, 0.0f);
+    search_pt.head = start_point.head;
+    
+    first_branch.push_back(RoadPt(search_pt.x,
+                                  search_pt.y,
+                                  search_pt.head,
+                                  is_oneway));
     while (true) {
         Eigen::Vector3d start_dir = headingTo3dVector(search_pt.head);
         Eigen::Vector3d start_perp_dir(-start_dir[1], start_dir[0], 0.0f);
@@ -840,24 +848,50 @@ void tJunctionFittingAt(PclPoint& start_point,
         
         vector<int> k_indices;
         vector<float> k_dist_sqrs;
-        search_tree->radiusSearch(search_pt, 10.0f, k_indices, k_dist_sqrs);
+        search_tree->radiusSearch(search_pt,
+                                  search_radius,
+                                  k_indices,
+                                  k_dist_sqrs);
+        
         int pt_count = 0;
+        int closeby_pt_count = 0;
         Eigen::Vector3d avg_dir(0.0f, 0.0f, 0.0f);
         float cum_perp_proj = 0.0f;
+        float delta_bin = 5.0f;
+        int N_BINS = 2 * floor(25.0f / delta_bin);
+        vector<float> votes(N_BINS, 0.0f);
         for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
             PclPoint& nb_pt = points->at(*it);
-            float delta_heading = abs(deltaHeading1MinusHeading2(nb_pt.head, search_pt.head));
+            
+            float signed_delta_heading = deltaHeading1MinusHeading2(nb_pt.head, search_pt.head);
+            float delta_heading = abs(signed_delta_heading);
             if (delta_heading > 90.0f) {
                 delta_heading = 180.0f - delta_heading;
+                int tmp_head = (nb_pt.head + 180) % 360;
+                signed_delta_heading = deltaHeading1MinusHeading2(tmp_head, search_pt.head);
             }
             
-            if (delta_heading < 15.0f) {
+            if (delta_heading < 25.0f) {
+                int bin_idx = floor((25.0f + signed_delta_heading) / delta_bin);
+                if (bin_idx >= N_BINS) {
+                    bin_idx = N_BINS-1;
+                }
+                if (bin_idx < 0) {
+                    bin_idx = 0;
+                }
+                
+                votes[bin_idx] += 1.0f;
+                
                 pt_count++;
                 is_covered[*it] = true;
                 // Compute perp projection
                 Eigen::Vector3d vec(nb_pt.x - search_pt.x,
                                     nb_pt.y - search_pt.y,
                                     0.0f);
+                float parallel_dir = abs(vec.dot(start_dir));
+                if (parallel_dir < 5.0f) {
+                    closeby_pt_count++;
+                }
                 Eigen::Vector3d nb_dir = headingTo3dVector(nb_pt.head);
                 float perp_proj = start_dir.cross(vec)[2];
                 cum_perp_proj += perp_proj;
@@ -872,100 +906,714 @@ void tJunctionFittingAt(PclPoint& start_point,
             }
         }
         
-        if (pt_count == 0) {
+        if (closeby_pt_count < 1) {
             break;
         }
         
-        avg_dir.normalize();
+        float max_vote = 0.0f;
+        int max_idx = -1.0f;
+        for (int k = 0; k < votes.size(); ++k) {
+            if (max_vote < votes[k]) {
+                max_vote = votes[k];
+                max_idx = k;
+            }
+        }
+        
+        int new_heading;
+        if (max_idx != -1) {
+            int max_bin_delta_heading = floor(-25.0f + (max_idx + 0.5f) * delta_bin);
+            new_heading = increaseHeadingBy(max_bin_delta_heading, search_pt.head);
+            avg_dir = headingTo3dVector(new_heading);
+        }
+        else{
+            avg_dir.normalize();
+            new_heading = vector3dToHeading(avg_dir);
+        }
+        
         cum_perp_proj /= pt_count;
         Eigen::Vector3d new_pt1 = tmp_search_pt + cum_perp_proj * start_perp_dir;
         Eigen::Vector3d new_pt2 = prev_search_pt + delta * avg_dir;
         Eigen::Vector3d new_pt = 0.5 * (new_pt1 + new_pt2);
         search_pt.x = new_pt.x();
         search_pt.y = new_pt.y();
-        int new_heading = vector3dToHeading(avg_dir);
         search_pt.head = new_heading;
-        first_branch.push_back(Vertex(search_pt.x, search_pt.y, search_pt.head));
+        first_branch.push_back(RoadPt(search_pt.x,
+                                      search_pt.y,
+                                      search_pt.head,
+                                      is_oneway));
     }
     
-    // Compute second branch
-    vector<Vertex> second_branch;
-    vector<float> votings(first_branch.size(), 0.0f);
-    float cum_voting = 0.0f;
+    smoothCurve(first_branch, true);
+    
+    // Partition the points
+    PclPointCloud::Ptr left_points(new PclPointCloud);
+    PclPointCloud::Ptr right_points(new PclPointCloud);
+    
     for (int i = 0; i < points->size(); ++i) {
         if (is_covered[i]) {
             continue;
         }
         
         PclPoint& pt = points->at(i);
-        Eigen::Vector3d pt_dir = headingTo3dVector(pt.head);
+        // Find the closest point to the first branch
+        int closest_idx = -1;
+        float closest_dist = 1e6;
         for (int j = 0; j < first_branch.size(); ++j) {
-            Vertex& v = first_branch[j];
-            Eigen::Vector3d vec(pt.x - v.x,
-                                pt.y - v.y,
+            RoadPt& this_pt = first_branch[j];
+            Eigen::Vector3d vec(pt.x - this_pt.x,
+                                pt.y - this_pt.y,
                                 0.0f);
-            float vec_length = vec.norm();
-            if (vec_length > 1e-3) {
-                vec /= vec_length;
-                float dot_value = abs(vec.dot(pt_dir));
-                if (dot_value > 0.8f) {
-                    votings[j] += dot_value;
-                    cum_voting += dot_value;
-                }
+            float length = vec.norm();
+            if(length < closest_dist){
+                closest_dist = length;
+                closest_idx = j;
             }
+        }
+        
+        RoadPt& this_pt = first_branch[closest_idx];
+        Eigen::Vector3d vec(pt.x - this_pt.x,
+                            pt.y - this_pt.y,
+                            0.0f);
+        Eigen::Vector3d this_pt_dir = headingTo3dVector(this_pt.head);
+        if (this_pt_dir.cross(vec)[2] > 0) {
+            left_points->push_back(pt);
+        }
+        else{
+            right_points->push_back(pt);
         }
     }
     
-    if (cum_voting > 1.0f) {
-        // Has second branch
-        int max_idx = -1;
-        float max_value = -1.0f;
-        for (int i = 0; i < votings.size(); ++i) {
-            if (max_value < votings[i]) {
-                max_value = votings[i];
-                max_idx = i;
-            }
+    // Vote for junction
+    vector<float> votes(first_branch.size(), 0.0f);
+    for (int i = 0; i < left_points->size(); ++i) {
+        PclPoint& pt = left_points->at(i);
+        float speed = pt.speed / 100.0f;
+        if(speed < 5.0f){
+            continue;
         }
+        Eigen::Vector3d pt_dir = headingTo3dVector(pt.head);
         
-        second_branch.push_back(first_branch[max_idx]);
-        Eigen::Vector3d dir = headingTo3dVector(floor(first_branch[max_idx].z));
-        
-        points_to_draw.push_back(SceneConst::getInstance().normalize(first_branch[max_idx].x, first_branch[max_idx].y, Z_DEBUG));
-        point_colors.push_back(ColorMap::getInstance().getNamedColor(ColorMap::PINK));
-        
-        for(int i = 0; i < points->size(); ++i){
-            if(is_covered[i]){
+        int vote_idx = -1;
+        float max_vote = 0.0f;
+        for (int j = 0; j < first_branch.size(); ++j) {
+            RoadPt& r_pt = first_branch[j];
+            Eigen::Vector3d vec(pt.x - r_pt.x,
+                                pt.y - r_pt.y,
+                                0.0f);
+            float length = vec.norm();
+            if (length > 1e-3) {
+                vec /= length;
+            }
+            
+            float dot_value = abs(pt_dir.dot(vec));
+            if(dot_value < 0.8f){
                 continue;
             }
             
-            PclPoint& pt = points->at(i);
-            Eigen::Vector3d vec(pt.x - first_branch[max_idx].x,
-                                pt.y - first_branch[max_idx].y,
-                                0.0f);
-            float cross_value = dir.cross(vec)[2];
-            if (cross_value > 0) {
-                points_to_draw.push_back(SceneConst::getInstance().normalize(pt.x, pt.y, Z_DEBUG));
-                point_colors.push_back(ColorMap::getInstance().getNamedColor(ColorMap::GREEN));
+            if (dot_value > max_vote) {
+                max_vote = dot_value;
+                vote_idx = j;
             }
-            else{
-                points_to_draw.push_back(SceneConst::getInstance().normalize(pt.x, pt.y, Z_DEBUG));
-                point_colors.push_back(ColorMap::getInstance().getNamedColor(ColorMap::ORANGE));
-            }
+        }
+        
+        if(vote_idx != -1){
+            votes[vote_idx] += 1.0f;
         }
     }
     
-    
-    for(int i = 1; i < first_branch.size(); ++i){
-        Vertex& v1 = first_branch[i-1];
-        Vertex& v2 = first_branch[i];
-        line_to_draw.push_back(SceneConst::getInstance().normalize(v1.x, v1.y, Z_DEBUG));
-        line_colors.push_back(ColorMap::getInstance().getNamedColor(ColorMap::YELLOW));
-        line_to_draw.push_back(SceneConst::getInstance().normalize(v2.x, v2.y, Z_DEBUG));
-        line_colors.push_back(ColorMap::getInstance().getNamedColor(ColorMap::YELLOW));
+    for (int i = 0; i < right_points->size(); ++i) {
+        PclPoint& pt = right_points->at(i);
+        float speed = pt.speed / 100.0f;
+        if(speed < 5.0f){
+            continue;
+        }
+        
+        Eigen::Vector3d pt_dir = headingTo3dVector(pt.head);
+        
+        int vote_idx = -1;
+        float max_vote = 0.0f;
+        for (int j = 0; j < first_branch.size(); ++j) {
+            RoadPt& r_pt = first_branch[j];
+            Eigen::Vector3d vec(pt.x - r_pt.x,
+                                pt.y - r_pt.y,
+                                0.0f);
+            float length = vec.norm();
+            if (length > 1e-3) {
+                vec /= length;
+            }
+            
+            float dot_value = abs(pt_dir.dot(vec));
+            if(dot_value < 0.8f){
+                continue;
+            }
+            if (dot_value > max_vote) {
+                max_vote = dot_value;
+                vote_idx = j;
+            }
+        }
+        
+        if (vote_idx != -1) {
+            votes[vote_idx] += 1.0f;
+        }
     }
-    return;
     
-    sample_search_tree->setInputCloud(sample_points);
+    int max_idx = -1;
+    float max_value = 1.5f;
+    for(int i = 0; i < votes.size(); ++i){
+        if (max_value < votes[i]) {
+            max_value = votes[i];
+            max_idx = i;
+        }
+    }
+    
+    if (max_idx != -1) {
+        // We have junction
+        RoadPt& r_pt = first_branch[max_idx];
+        junction_loc.x = r_pt.x;
+        junction_loc.y = r_pt.y;
+        
+        Eigen::Vector2d r_pt_dir = headingTo2dVector(r_pt.head);
+        Eigen::Vector2d r_perp_dir(-r_pt_dir[1], r_pt_dir[0]);
+        Eigen::Vector2d pt(r_pt.x, r_pt.y);
+        
+        Eigen::Vector2d branch_pt(r_pt.x, r_pt.y);
+        
+        // Trace left branch
+        bool has_left_branch = false;
+        bool has_right_branch = false;
+        if (left_points->size() > 5) {
+            PclPoint search_pt;
+            search_pt.setCoordinate(branch_pt.x(), branch_pt.y(), 0.0f);
+            
+            // Trace left branch
+            Eigen::Vector2d avg_dir(0.0f, 0.0f);
+            for (int i = 0; i < left_points->size(); ++i) {
+                PclPoint& nb_pt = left_points->at(i);
+                Eigen::Vector2d vec(nb_pt.x - branch_pt.x(),
+                                    nb_pt.y - branch_pt.y());
+                float vec_length = vec.norm();
+                if(vec_length > 1e-3){
+                    vec /= vec_length;
+                    avg_dir += vec;
+                }
+            }
+            
+            int first_heading = vector2dToHeading(avg_dir);
+            search_pt.head = first_heading;
+            
+            vector<RoadPt> left_branch;
+            left_branch.push_back(RoadPt(search_pt.x,
+                                         search_pt.y,
+                                         search_pt.head,
+                                         false));
+            
+            Eigen::Vector2d left_branch_dir = headingTo2dVector(search_pt.head);
+            Eigen::Vector2d nxt_loc = branch_pt + 10.0f * left_branch_dir;
+            
+            left_branch.push_back(RoadPt(nxt_loc.x(),
+                                         nxt_loc.y(),
+                                         search_pt.head,
+                                         false));
+            
+            branches.push_back(left_branch);
+            has_left_branch = true;
+        }
+        
+        // Trace right branch
+        if (right_points->size() > 5) {
+            // Trace right branch
+            PclPoint search_pt;
+            search_pt.setCoordinate(branch_pt.x(), branch_pt.y(), 0.0f);
+            
+            // Trace right branch
+            Eigen::Vector2d avg_dir(0.0f, 0.0f);
+            for (int i = 0; i < right_points->size(); ++i) {
+                PclPoint& nb_pt = right_points->at(i);
+                Eigen::Vector2d vec(nb_pt.x - branch_pt.x(),
+                                    nb_pt.y - branch_pt.y());
+                float vec_length = vec.norm();
+                if(vec_length > 1e-3){
+                    vec /= vec_length;
+                    avg_dir += vec;
+                }
+            }
+            
+            int first_heading = vector2dToHeading(avg_dir);
+            search_pt.head = first_heading;
+            
+            vector<RoadPt> right_branch;
+            right_branch.push_back(RoadPt(search_pt.x,
+                                          search_pt.y,
+                                          search_pt.head,
+                                          false));
+            
+            Eigen::Vector2d right_branch_dir = headingTo2dVector(search_pt.head);
+            Eigen::Vector2d nxt_loc = branch_pt + 10.0f * right_branch_dir;
+            right_branch.push_back(RoadPt(nxt_loc.x(),
+                                          nxt_loc.y(),
+                                          search_pt.head,
+                                          false));
+            
+            branches.push_back(right_branch);
+            has_right_branch = true;
+        }
+        
+        if (has_left_branch || has_right_branch) {
+            return true;
+        }
+        else{
+            return false;
+        }
+    }
+    else{
+        branches.push_back(first_branch);
+        return false;
+    }
+}
+
+bool branchPredictionWithDebug(float               search_radius,
+                               RoadPt&             start_point,
+                               set<int>&           candidate_set,
+                               Trajectories*       trajectories,
+                               RoadPt&             junction_loc,
+                               vector<vector<RoadPt> >&     branches,
+                               vector<Vertex>&     points_to_draw,
+                               vector<Color>&      point_colors,
+                               vector<Vertex>&     line_to_draw,
+                               vector<Color>&      line_colors,
+                               bool                grow_backward){
+    
+    /*
+     Predict if we need to do branch.
+        - return value:
+            true: branch
+            false: grow
+     */
+    
+    if(candidate_set.size() == 0){
+        return false;
+    }
+    
+    bool is_oneway = start_point.is_oneway;
+    
+    bool DEBUG = true;
+    
+    // Initialize point cloud
+    PclPointCloud::Ptr points(new PclPointCloud);
+    PclSearchTree::Ptr search_tree(new pcl::search::FlannSearch<PclPoint>(false));
+    
+    // Add points to point cloud
+    for (set<int>::iterator it = candidate_set.begin(); it != candidate_set.end(); ++it) {
+        PclPoint& pt = trajectories->data()->at(*it);
+        points->push_back(pt);
+    }
+    
+    search_tree->setInputCloud(points);
+    
+    vector<int> is_covered(points->size(), false);
+    
+    float delta = 10.0f; // in meters
+    // Trace the first branch
+    vector<RoadPt> first_branch;
+    PclPoint search_pt;
+    search_pt.setCoordinate(start_point.x, start_point.y, 0.0f);
+    search_pt.head = start_point.head;
+    
+    first_branch.push_back(RoadPt(search_pt.x,
+                                  search_pt.y,
+                                  search_pt.head,
+                                  is_oneway));
+    while (true) {
+        Eigen::Vector3d start_dir = headingTo3dVector(search_pt.head);
+        Eigen::Vector3d start_perp_dir(-start_dir[1], start_dir[0], 0.0f);
+        Eigen::Vector3d prev_search_pt(search_pt.x, search_pt.y, 0.0f);
+        Eigen::Vector3d tmp_search_pt = prev_search_pt + delta * start_dir;
+        
+        search_pt.x = tmp_search_pt.x();
+        search_pt.y = tmp_search_pt.y();
+        
+        vector<int> k_indices;
+        vector<float> k_dist_sqrs;
+        search_tree->radiusSearch(search_pt,
+                                  search_radius,
+                                  k_indices,
+                                  k_dist_sqrs);
+        
+        int pt_count = 0;
+        int closeby_pt_count = 0;
+        Eigen::Vector3d avg_dir(0.0f, 0.0f, 0.0f);
+        float cum_perp_proj = 0.0f;
+        float delta_bin = 5.0f;
+        int N_BINS = 2 * floor(25.0f / delta_bin);
+        vector<float> votes(N_BINS, 0.0f);
+        for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
+            PclPoint& nb_pt = points->at(*it);
+            
+            float signed_delta_heading = deltaHeading1MinusHeading2(nb_pt.head, search_pt.head);
+            float delta_heading = abs(signed_delta_heading);
+            if (delta_heading > 90.0f) {
+                delta_heading = 180.0f - delta_heading;
+                int tmp_head = (nb_pt.head + 180) % 360;
+                signed_delta_heading = deltaHeading1MinusHeading2(tmp_head, search_pt.head);
+            }
+            
+            if (delta_heading < 25.0f) {
+                int bin_idx = floor((25.0f + signed_delta_heading) / delta_bin);
+                if (bin_idx >= N_BINS) {
+                    bin_idx = N_BINS-1;
+                }
+                if (bin_idx < 0) {
+                    bin_idx = 0;
+                }
+                
+                votes[bin_idx] += 1.0f;
+                
+                pt_count++;
+                is_covered[*it] = true;
+                // Compute perp projection
+                Eigen::Vector3d vec(nb_pt.x - search_pt.x,
+                                    nb_pt.y - search_pt.y,
+                                    0.0f);
+                float parallel_dir = abs(vec.dot(start_dir));
+                if (parallel_dir < 5.0f) {
+                    closeby_pt_count++;
+                }
+                Eigen::Vector3d nb_dir = headingTo3dVector(nb_pt.head);
+                float perp_proj = start_dir.cross(vec)[2];
+                cum_perp_proj += perp_proj;
+                
+                float dot_value = start_dir.dot(nb_dir);
+                if (dot_value < 0) {
+                    avg_dir -= nb_dir;
+                }
+                else{
+                    avg_dir += nb_dir;
+                }
+            }
+        }
+        
+        if (closeby_pt_count < 1) {
+            break;
+        }
+        
+        float max_vote = 0.0f;
+        int max_idx = -1.0f;
+        for (int k = 0; k < votes.size(); ++k) {
+            if (max_vote < votes[k]) {
+                max_vote = votes[k];
+                max_idx = k;
+            }
+        }
+        
+        int new_heading;
+        if (max_idx != -1) {
+            int max_bin_delta_heading = floor(-25.0f + (max_idx + 0.5f) * delta_bin);
+            new_heading = increaseHeadingBy(max_bin_delta_heading, search_pt.head);
+            avg_dir = headingTo3dVector(new_heading);
+        }
+        else{
+            avg_dir.normalize();
+            new_heading = vector3dToHeading(avg_dir);
+        }
+        
+        cum_perp_proj /= pt_count;
+        Eigen::Vector3d new_pt1 = tmp_search_pt + cum_perp_proj * start_perp_dir;
+        Eigen::Vector3d new_pt2 = prev_search_pt + delta * avg_dir;
+        Eigen::Vector3d new_pt = 0.5 * (new_pt1 + new_pt2);
+        search_pt.x = new_pt.x();
+        search_pt.y = new_pt.y();
+        search_pt.head = new_heading;
+        first_branch.push_back(RoadPt(search_pt.x,
+                                      search_pt.y,
+                                      search_pt.head,
+                                      is_oneway));
+    }
+    
+    smoothCurve(first_branch, true);
+    
+    if (DEBUG) {
+        // Display first branch
+        for(int i = 1; i < first_branch.size(); ++i){
+            RoadPt& v1 = first_branch[i-1];
+            RoadPt& v2 = first_branch[i];
+            line_to_draw.push_back(SceneConst::getInstance().normalize(v1.x, v1.y, Z_DEBUG));
+            line_colors.push_back(ColorMap::getInstance().getNamedColor(ColorMap::YELLOW));
+            line_to_draw.push_back(SceneConst::getInstance().normalize(v2.x, v2.y, Z_DEBUG));
+            line_colors.push_back(ColorMap::getInstance().getNamedColor(ColorMap::YELLOW));
+        }
+        
+        for(int i = 0; i < first_branch.size(); ++i){
+            RoadPt& v = first_branch[i];
+            points_to_draw.push_back(SceneConst::getInstance().normalize(v.x, v.y, Z_DEBUG));
+            point_colors.push_back(ColorMap::getInstance().getNamedColor(ColorMap::YELLOW));
+        }
+    }
+    
+    // Partition the points
+    PclPointCloud::Ptr left_points(new PclPointCloud);
+    PclPointCloud::Ptr right_points(new PclPointCloud);
+    
+    for (int i = 0; i < points->size(); ++i) {
+        if (is_covered[i]) {
+            continue;
+        }
+        
+        PclPoint& pt = points->at(i);
+        
+        float speed = pt.speed / 100.0f;
+        if(speed < 5.0f){
+            continue;
+        }
+        
+        // Find the closest point to the first branch
+        int closest_idx = -1;
+        float closest_dist = 1e6;
+        for (int j = 0; j < first_branch.size(); ++j) {
+            RoadPt& this_pt = first_branch[j];
+            Eigen::Vector3d vec(pt.x - this_pt.x,
+                                pt.y - this_pt.y,
+                                0.0f);
+            float length = vec.norm();
+            if(length < closest_dist){
+                closest_dist = length;
+                closest_idx = j;
+            }
+        }
+        
+        RoadPt& this_pt = first_branch[closest_idx];
+        Eigen::Vector3d vec(pt.x - this_pt.x,
+                            pt.y - this_pt.y,
+                            0.0f);
+        Eigen::Vector3d this_pt_dir = headingTo3dVector(this_pt.head);
+        if (this_pt_dir.cross(vec)[2] > 0) {
+            left_points->push_back(pt);
+        }
+        else{
+            right_points->push_back(pt);
+        }
+    }
+    
+    if (DEBUG) {
+        for(int i = 0; i < left_points->size(); ++i){
+            PclPoint& pt = left_points->at(i);
+            points_to_draw.push_back(SceneConst::getInstance().normalize(pt.x, pt.y, Z_DEBUG));
+            point_colors.push_back(ColorMap::getInstance().getNamedColor(ColorMap::PINK));
+        }
+        
+        for(int i = 0; i < right_points->size(); ++i){
+            PclPoint& pt = right_points->at(i);
+            points_to_draw.push_back(SceneConst::getInstance().normalize(pt.x, pt.y, Z_DEBUG));
+            point_colors.push_back(ColorMap::getInstance().getNamedColor(ColorMap::GREEN));
+        }
+    }
+    
+    // Vote for junction
+    vector<float> votes(first_branch.size(), 0.0f);
+    for (int i = 0; i < left_points->size(); ++i) {
+        PclPoint& pt = left_points->at(i);
+        float speed = pt.speed / 100.0f;
+        if(speed < 5.0f){
+            continue;
+        }
+        Eigen::Vector3d pt_dir = headingTo3dVector(pt.head);
+        
+        int vote_idx = -1;
+        float max_vote = 0.0f;
+        for (int j = 0; j < first_branch.size(); ++j) {
+            RoadPt& r_pt = first_branch[j];
+            Eigen::Vector3d vec(pt.x - r_pt.x,
+                                pt.y - r_pt.y,
+                                0.0f);
+            float length = vec.norm();
+            if (length > 1e-3) {
+                vec /= length;
+            }
+            
+            float dot_value = abs(pt_dir.dot(vec));
+            if(dot_value < 0.8f){
+                continue;
+            }
+            
+            if (dot_value > max_vote) {
+                max_vote = dot_value;
+                vote_idx = j;
+            }
+        }
+        
+        if(vote_idx != -1){
+            votes[vote_idx] += 1.0f;
+        }
+    }
+    
+    for (int i = 0; i < right_points->size(); ++i) {
+        PclPoint& pt = right_points->at(i);
+        float speed = pt.speed / 100.0f;
+        if(speed < 5.0f){
+            continue;
+        }
+        
+        Eigen::Vector3d pt_dir = headingTo3dVector(pt.head);
+        
+        int vote_idx = -1;
+        float max_vote = 0.0f;
+        for (int j = 0; j < first_branch.size(); ++j) {
+            RoadPt& r_pt = first_branch[j];
+            Eigen::Vector3d vec(pt.x - r_pt.x,
+                                pt.y - r_pt.y,
+                                0.0f);
+            float length = vec.norm();
+            if (length > 1e-3) {
+                vec /= length;
+            }
+            
+            float dot_value = abs(pt_dir.dot(vec));
+            if(dot_value < 0.8f){
+                continue;
+            }
+            if (dot_value > max_vote) {
+                max_vote = dot_value;
+                vote_idx = j;
+            }
+        }
+       
+        if (vote_idx != -1) {
+            votes[vote_idx] += 1.0f;
+        }
+    }
+    
+    int max_idx = -1;
+    float max_value = 1.5f;
+    for(int i = 0; i < votes.size(); ++i){
+        if (max_value < votes[i]) {
+            max_value = votes[i];
+            max_idx = i;
+        }
+    }
+    
+    if (max_idx != -1) {
+        // We have junction
+        RoadPt& r_pt = first_branch[max_idx];
+        junction_loc.x = r_pt.x;
+        junction_loc.y = r_pt.y;
+        
+        Eigen::Vector2d r_pt_dir = headingTo2dVector(r_pt.head);
+        Eigen::Vector2d r_perp_dir(-r_pt_dir[1], r_pt_dir[0]);
+        Eigen::Vector2d pt(r_pt.x, r_pt.y);
+        
+        if (DEBUG) {
+            // Visualize junction
+            Eigen::Vector2d v1 = pt + 5.0f * r_perp_dir;
+            Eigen::Vector2d v2 = pt - 5.0f * r_perp_dir;
+            Eigen::Vector2d v3 = pt + 5.0f * r_pt_dir;
+            Eigen::Vector2d v4 = pt - 5.0f * r_pt_dir;
+            line_to_draw.push_back(SceneConst::getInstance().normalize(v1.x(), v1.y(), Z_DEBUG));
+            line_to_draw.push_back(SceneConst::getInstance().normalize(v2.x(), v2.y(), Z_DEBUG));
+            line_to_draw.push_back(SceneConst::getInstance().normalize(v3.x(), v3.y(), Z_DEBUG));
+            line_to_draw.push_back(SceneConst::getInstance().normalize(v4.x(), v4.y(), Z_DEBUG));
+            line_colors.push_back(ColorMap::getInstance().getNamedColor(ColorMap::RED));
+            line_colors.push_back(ColorMap::getInstance().getNamedColor(ColorMap::RED));
+            line_colors.push_back(ColorMap::getInstance().getNamedColor(ColorMap::RED));
+            line_colors.push_back(ColorMap::getInstance().getNamedColor(ColorMap::RED));
+        }
+        
+        Eigen::Vector2d branch_pt(r_pt.x, r_pt.y);
+        
+        // Trace left branch
+        if (left_points->size() > 5) {
+            PclPoint search_pt;
+            search_pt.setCoordinate(branch_pt.x(), branch_pt.y(), 0.0f);
+            
+            // Trace left branch
+            Eigen::Vector2d avg_dir(0.0f, 0.0f);
+            for (int i = 0; i < left_points->size(); ++i) {
+                PclPoint& nb_pt = left_points->at(i);
+                Eigen::Vector2d vec(nb_pt.x - branch_pt.x(),
+                                    nb_pt.y - branch_pt.y());
+                float vec_length = vec.norm();
+                if(vec_length > 1e-3){
+                    vec /= vec_length;
+                    avg_dir += vec;
+                }
+            }
+            
+            int first_heading = vector2dToHeading(avg_dir);
+            search_pt.head = first_heading;
+            
+            vector<RoadPt> left_branch;
+            left_branch.push_back(RoadPt(search_pt.x,
+                                         search_pt.y,
+                                         search_pt.head,
+                                         false));
+            
+            Eigen::Vector2d left_branch_dir = headingTo2dVector(search_pt.head);
+            Eigen::Vector2d nxt_loc = branch_pt + 20.0f * left_branch_dir;
+            
+            left_branch.push_back(RoadPt(nxt_loc.x(),
+                                         nxt_loc.y(),
+                                         search_pt.head,
+                                         false));
+            
+            branches.push_back(left_branch);
+            
+            if (DEBUG) {
+                line_to_draw.push_back(SceneConst::getInstance().normalize(left_branch[0].x, left_branch[0].y, Z_DEBUG + 0.05f));
+                line_colors.push_back(ColorMap::getInstance().getNamedColor(ColorMap::PINK));
+                line_to_draw.push_back(SceneConst::getInstance().normalize(left_branch[1].x, left_branch[1].y, Z_DEBUG + 0.05f));
+                line_colors.push_back(ColorMap::getInstance().getNamedColor(ColorMap::PINK));
+            }
+        }
+        
+        // Trace right branch
+        if (right_points->size() > 5) {
+            // Trace right branch
+            PclPoint search_pt;
+            search_pt.setCoordinate(branch_pt.x(), branch_pt.y(), 0.0f);
+            
+            // Trace right branch
+            Eigen::Vector2d avg_dir(0.0f, 0.0f);
+            for (int i = 0; i < right_points->size(); ++i) {
+                PclPoint& nb_pt = right_points->at(i);
+                Eigen::Vector2d vec(nb_pt.x - branch_pt.x(),
+                                    nb_pt.y - branch_pt.y());
+                float vec_length = vec.norm();
+                if(vec_length > 1e-3){
+                    vec /= vec_length;
+                    avg_dir += vec;
+                }
+            }
+            
+            int first_heading = vector2dToHeading(avg_dir);
+            search_pt.head = first_heading;
+            
+            vector<RoadPt> right_branch;
+            right_branch.push_back(RoadPt(search_pt.x,
+                                          search_pt.y,
+                                          search_pt.head,
+                                          false));
+            
+            Eigen::Vector2d right_branch_dir = headingTo2dVector(search_pt.head);
+            Eigen::Vector2d nxt_loc = branch_pt + 20.0f * right_branch_dir;
+            right_branch.push_back(RoadPt(nxt_loc.x(),
+                                          nxt_loc.y(),
+                                          search_pt.head,
+                                          false));
+            
+            branches.push_back(right_branch);
+            
+            if (DEBUG) {
+                line_to_draw.push_back(SceneConst::getInstance().normalize(right_branch[0].x, right_branch[0].y, Z_DEBUG + 0.05f));
+                line_colors.push_back(ColorMap::getInstance().getNamedColor(ColorMap::GREEN));
+                line_to_draw.push_back(SceneConst::getInstance().normalize(right_branch[1].x, right_branch[1].y, Z_DEBUG + 0.05f));
+                line_colors.push_back(ColorMap::getInstance().getNamedColor(ColorMap::GREEN));
+            }
+        }
+        
+        return true;
+    }
+    else{
+        branches.push_back(first_branch);
+        return false;
+    }
 }
 
 void trainQueryQClassifier(vector<query_q_sample_type>& samples,
@@ -1520,15 +2168,19 @@ void QueryQFeatureSelector::extractTrainingSamplesFromMap(float radius, OpenStre
                 
                 feature_headings_.clear();
                 feature_heading_colors_.clear();
-//                tJunctionFittingAt(pt, candidate_point_set, trajectories_, feature_vertices_, feature_colors_);
-//                tJunctionFittingAt(pt, candidate_point_set, trajectories_, feature_headings_, feature_heading_colors_);
-                tJunctionFittingAt(pt,
-                                   candidate_point_set,
-                                   trajectories_,
-                                   feature_vertices_,
-                                   feature_colors_,
-                                   feature_headings_,
-                                   feature_heading_colors_);
+                RoadPt start_pt(pt.x, pt.y, pt.head, osmMap_->ways()[way_id].isOneway());
+                RoadPt junction_loc;
+                vector<vector<RoadPt> > branches;
+                branchPredictionWithDebug(radius,
+                                          start_pt,
+                                          candidate_point_set,
+                                          trajectories_,
+                                          junction_loc,
+                                          branches,
+                                          feature_vertices_,
+                                          feature_colors_,
+                                          feature_headings_,
+                                          feature_heading_colors_);
             }
         }
         else{

@@ -84,13 +84,25 @@ bool computeQueryQFeatureAtForVisualization(float radius,
                                             bool grow_backward = false);
 
 // MAP estimation Junction Predictor
-void tJunctionFittingAt(PclPoint& start_point,
-                        set<int>& candidate_set,
-                        Trajectories* trajectories,
-                        vector<Vertex>& points_to_draw,
-                        vector<Color>& point_colors,
-                        vector<Vertex>& line_to_draw,
-                        vector<Color>& line_colors);
+bool branchPrediction(float               search_radius,
+                      RoadPt&             start_point,
+                      set<int>&           candidate_set,
+                      Trajectories*       trajectories,
+                      RoadPt&             junction_loc,
+                      vector<vector<RoadPt>>&     branches,
+                      bool                grow_backward = false);
+
+bool branchPredictionWithDebug(float               search_radius,
+                               RoadPt&             start_point,
+                               set<int>&           candidate_set,
+                               Trajectories*       trajectories,
+                               RoadPt&             junction_loc,
+                               vector<vector<RoadPt>>&     branches,
+                               vector<Vertex>&     points_to_draw,
+                               vector<Color>&      point_colors,
+                               vector<Vertex>&     line_to_draw,
+                               vector<Color>&      line_colors,
+                               bool                grow_backward = false);
 
 void trainQueryQClassifier(vector<query_q_sample_type>& samples,
                               vector<int>& labels,

@@ -183,7 +183,7 @@ Eigen::Vector2d headingTo2dVector(const int heading){
 
 Eigen::Vector3d headingTo3dVector(const int heading){
     if (heading < 0 || heading > 360) {
-        cout << "Error when converting heading to 3d vector. Invalid input.!" << endl;
+        cout << "Error when converting heading to 3d vector. Invalid input! Input is: " << heading << endl;
         return Eigen::Vector3d(0.0f, 0.0f, 0.0f);
     }
     
@@ -259,7 +259,7 @@ int increaseHeadingBy(int delta_heading,
         return -1;
     }
     
-    return (orig_heading + delta_heading) % 360;
+    return (orig_heading + delta_heading + 360) % 360;
 }
 
 int decreaseHeadingBy(int delta_heading,
@@ -270,6 +270,177 @@ int decreaseHeadingBy(int delta_heading,
     }
     
     return (orig_heading - delta_heading + 360) % 360;
+}
+
+void smoothCurve(vector<RoadPt>& center_line, bool fix_front){
+    /*
+        This function smooth the road center line represented as a vector of RoadPt.
+     */
+    if(center_line.size() < 2){
+        return;
+    }
+    
+    vector<float> orig_xs;
+    vector<float> orig_ys;
+    for (int i = 0; i < center_line.size(); ++i) {
+        orig_xs.push_back(center_line[i].x);
+        orig_ys.push_back(center_line[i].y);
+    }
+    
+    if(fix_front){
+        float orig_last_x = center_line.back().x;
+        float orig_last_y = center_line.back().y;
+        int max_iter = 100;
+        int i_iter = 0;
+        while(i_iter <= max_iter){
+            i_iter++;
+            float cum_change = 0.0f;
+            for(int i = 1; i < center_line.size() - 1; ++i){
+                RoadPt& cur_pt = center_line[i];
+                RoadPt& prev_pt = center_line[i-1];
+                RoadPt& nxt_pt = center_line[i+1];
+                Eigen::Vector2d prev_dir = headingTo2dVector(prev_pt.head);
+                Eigen::Vector2d nxt_dir = headingTo2dVector(nxt_pt.head);
+                Eigen::Vector2d prev_perp_dir(-prev_dir[1], prev_dir[0]);
+                Eigen::Vector2d nxt_perp_dir(-nxt_dir[1], nxt_dir[0]);
+                
+                float A1 = 3 + pow(prev_perp_dir[0] + nxt_perp_dir[0], 2);
+                float B1 = (prev_perp_dir[0] + nxt_perp_dir[0]) * (prev_perp_dir[1] + nxt_perp_dir[1]);
+                float K = prev_perp_dir[0] * prev_pt.x + prev_perp_dir[1] * prev_pt.y + nxt_perp_dir[0] * nxt_pt.x + nxt_perp_dir[1] * nxt_pt.y;
+                float C1 = prev_pt.x + nxt_pt.x + orig_xs[i] + (prev_perp_dir[0] + nxt_perp_dir[0]) * K;
+                
+                float B2 = 3 + pow(prev_perp_dir[1] + nxt_perp_dir[1], 2);
+                float A2 = B1;
+                float C2 = prev_pt.y + nxt_pt.y + orig_ys[i] + (prev_perp_dir[1] + nxt_perp_dir[1]) * K;
+                
+                float bottom = A2*B1 - A1*B2;
+                if (abs(bottom) > 1e-3) {
+                    float new_x = (B1*C2 - B2*C1) / bottom;
+                    float new_y = (A2*C1 - A1*C2) / bottom;
+                    float delta_x = new_x - cur_pt.x;
+                    float delta_y = new_y - cur_pt.y;
+                    
+                    cum_change += sqrt(delta_x*delta_x + delta_y*delta_y);
+                    
+                    cur_pt.x = new_x;
+                    cur_pt.y = new_y;
+                }
+            }
+            
+            // Update last point
+            int last_idx = center_line.size()-1;
+            RoadPt& cur_pt = center_line[last_idx];
+            RoadPt& prev_pt = center_line[last_idx-1];
+            Eigen::Vector2d prev_dir = headingTo2dVector(prev_pt.head);
+            Eigen::Vector2d cur_dir = headingTo2dVector(cur_pt.head);
+            Eigen::Vector2d prev_perp_dir(-prev_dir[1], prev_dir[0]);
+            Eigen::Vector2d cur_perp_dir(-cur_dir[1], cur_dir[0]);
+            
+            float K = (prev_perp_dir[0] + cur_perp_dir[0]) * prev_pt.x
+            + (prev_perp_dir[1] + cur_perp_dir[1]) * prev_pt.y;
+            
+            float A1 = 1.0f + pow(prev_perp_dir[0] + cur_perp_dir[0], 2.0f);
+            float B1 = (prev_perp_dir[0] + cur_perp_dir[0]) * (prev_perp_dir[1] + cur_perp_dir[1]);
+            float C1 = (prev_perp_dir[0] + cur_perp_dir[0])*K + orig_last_x;
+            float B2 = 1.0f + pow(prev_perp_dir[1] + cur_perp_dir[1], 2.0f);
+            float A2 = B1;
+            float C2 = (prev_perp_dir[1] + cur_perp_dir[1])*K + orig_last_y;
+            
+            float bottom = A2*B1 - A1*B2;
+            if (abs(bottom) > 1e-3) {
+                float new_x = (B1*C2 - B2*C1) / bottom;
+                float new_y = (A2*C1 - A1*C2) / bottom;
+                float delta_x = new_x - cur_pt.x;
+                float delta_y = new_y - cur_pt.y;
+                
+                cum_change += sqrt(delta_x*delta_x + delta_y*delta_y);
+                
+                cur_pt.x = new_x;
+                cur_pt.y = new_y;
+            }
+            
+            if (cum_change < 0.1f) {
+                break;
+            }
+        }
+    }
+    else{
+        float orig_first_x = center_line.front().x;
+        float orig_first_y = center_line.front().y;
+        int max_iter = 100;
+        int i_iter = 0;
+        while(i_iter <= max_iter){
+            i_iter++;
+            float cum_change = 0.0f;
+            
+            for(int i = center_line.size() - 2; i > 0; --i){
+                RoadPt& cur_pt = center_line[i];
+                RoadPt& prev_pt = center_line[i-1];
+                RoadPt& nxt_pt = center_line[i+1];
+                Eigen::Vector2d prev_dir = headingTo2dVector(prev_pt.head);
+                Eigen::Vector2d nxt_dir = headingTo2dVector(nxt_pt.head);
+                Eigen::Vector2d prev_perp_dir(-prev_dir[1], prev_dir[0]);
+                Eigen::Vector2d nxt_perp_dir(-nxt_dir[1], nxt_dir[0]);
+                
+                float A1 = 3 + pow(prev_perp_dir[0] + nxt_perp_dir[0], 2);
+                float B1 = (prev_perp_dir[0] + nxt_perp_dir[0]) * (prev_perp_dir[1] + nxt_perp_dir[1]);
+                float K = prev_perp_dir[0] * prev_pt.x + prev_perp_dir[1] * prev_pt.y + nxt_perp_dir[0] * nxt_pt.x + nxt_perp_dir[1] * nxt_pt.y;
+                float C1 = prev_pt.x + nxt_pt.x + orig_xs[i] + (prev_perp_dir[0] + nxt_perp_dir[0]) * K;
+                
+                float B2 = 3 + pow(prev_perp_dir[1] + nxt_perp_dir[1], 2);
+                float A2 = B1;
+                float C2 = prev_pt.y + nxt_pt.y + orig_ys[i] + (prev_perp_dir[1] + nxt_perp_dir[1]) * K;
+                
+                float bottom = A2*B1 - A1*B2;
+                if (abs(bottom) > 1e-3) {
+                    float new_x = (B1*C2 - B2*C1) / bottom;
+                    float new_y = (A2*C1 - A1*C2) / bottom;
+                    float delta_x = new_x - cur_pt.x;
+                    float delta_y = new_y - cur_pt.y;
+                    
+                    cum_change += sqrt(delta_x*delta_x + delta_y*delta_y);
+                    
+                    cur_pt.x = new_x;
+                    cur_pt.y = new_y;
+                }
+            }
+            
+            // Update first point
+            RoadPt& cur_pt = center_line[0];
+            RoadPt& nxt_pt = center_line[1];
+            Eigen::Vector2d nxt_dir = headingTo2dVector(nxt_pt.head);
+            Eigen::Vector2d cur_dir = headingTo2dVector(cur_pt.head);
+            Eigen::Vector2d nxt_perp_dir(-nxt_dir[1], nxt_dir[0]);
+            Eigen::Vector2d cur_perp_dir(-cur_dir[1], cur_dir[0]);
+            
+            float K = (nxt_perp_dir[0] + cur_perp_dir[0]) * nxt_pt.x
+            + (nxt_perp_dir[1] + cur_perp_dir[1]) * nxt_pt.y;
+            
+            float A1 = 1.0f + pow(nxt_perp_dir[0] + cur_perp_dir[0], 2.0f);
+            float B1 = (nxt_perp_dir[0] + cur_perp_dir[0]) * (nxt_perp_dir[1] + cur_perp_dir[1]);
+            float C1 = (nxt_perp_dir[0] + cur_perp_dir[0])*K + orig_first_x;
+            float B2 = 1.0f + pow(nxt_perp_dir[1] + cur_perp_dir[1], 2.0f);
+            float A2 = B1;
+            float C2 = (nxt_perp_dir[1] + cur_perp_dir[1])*K + orig_first_y;
+            
+            float bottom = A2*B1 - A1*B2;
+            if (abs(bottom) > 1e-3) {
+                float new_x = (B1*C2 - B2*C1) / bottom;
+                float new_y = (A2*C1 - A1*C2) / bottom;
+                float delta_x = new_x - cur_pt.x;
+                float delta_y = new_y - cur_pt.y;
+                
+                cum_change += sqrt(delta_x*delta_x + delta_y*delta_y);
+                
+                cur_pt.x = new_x;
+                cur_pt.y = new_y;
+            }
+            
+            if (cum_change < 0.1f) {
+                break;
+            }
+        }
+    }
 }
 
 void SceneConst::updateAttr(){

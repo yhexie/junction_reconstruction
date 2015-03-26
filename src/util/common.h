@@ -63,6 +63,40 @@ struct Vertex{
     Vertex(){x = 0.0f; y = 0.0f; z = 0.0f;}
 };
 
+struct RoadPt{
+    float x;
+    float y;
+    int   head;
+    bool  is_oneway;
+    int   n_lanes;
+    RoadPt() {x = 0.0f; y = 0.0f; head = 0; is_oneway = true; n_lanes = 1;}
+    RoadPt(float tx,
+           float ty,
+           int thead,
+           bool tOneway,
+           int tLanes) : x(tx),
+                        y(ty),
+                        head(thead),
+                        is_oneway(tOneway),
+                        n_lanes(tLanes) {}
+    
+    RoadPt(float tx,
+           float ty,
+           int thead,
+           bool tOneway) :  x(tx),
+                            y(ty),
+                            head(thead),
+                            is_oneway(tOneway)
+    {
+        if(tOneway){
+            n_lanes = 1;
+        }
+        else{
+            n_lanes = 2;
+        }
+    }
+};
+
 namespace Common{
     std::string int2String(int i, int width);
     void randomK(std::vector<int>& random_k, int k, int N);
@@ -80,6 +114,8 @@ int increaseHeadingBy(int delta_heading,
                       const int orig_heading);
 int decreaseHeadingBy(int delta_heading,
                       const int orig_heading);
+
+void smoothCurve(vector<RoadPt>& center_line, bool fix_front = true);
 
 class SceneConst
 {

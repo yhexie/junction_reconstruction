@@ -95,13 +95,6 @@ bool dividePointsIntoSets(set<int>& pts,
                           float dist_threshold = 15.f,
                           float heading_threshold = 15.0f,
                           int tolerance = 10);
-struct RoadPt{
-    float x;
-    float y;
-    int   head;
-    bool  is_oneway;
-    int   n_lanes;
-};
 
 class RoadGenerator : public Renderable
 {
@@ -201,10 +194,13 @@ private:
 //    vector<Vertex>                  feature_properties_; // x, y, heading
 //    vector<int>                     labels_;
     
-    // Query Q Features and Classifiers
-    
+    // For visualization
     vector<Vertex>                  feature_vertices_;
     vector<Color>                   feature_colors_;
+    
+    vector<Vertex>                  lines_to_draw_;
+    vector<Color>                   line_colors_;
+    
 };
 
 #endif /* defined(__junction_reconstruction__road_generator__) */
