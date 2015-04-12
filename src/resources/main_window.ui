@@ -606,63 +606,22 @@
                     </layout>
                    </widget>
                   </item>
-                 </layout>
-                </widget>
-               </item>
-               <item>
-                <widget class="QFrame" name="frame_13">
-                 <property name="frameShape">
-                  <enum>QFrame::Box</enum>
-                 </property>
-                 <property name="frameShadow">
-                  <enum>QFrame::Raised</enum>
-                 </property>
-                 <layout class="QVBoxLayout" name="verticalLayout_9">
-                  <property name="leftMargin">
-                   <number>5</number>
-                  </property>
-                  <property name="topMargin">
-                   <number>0</number>
-                  </property>
-                  <property name="rightMargin">
-                   <number>5</number>
-                  </property>
-                  <property name="bottomMargin">
-                   <number>0</number>
-                  </property>
                   <item>
-                   <widget class="QLabel" name="label_8">
-                    <property name="font">
-                     <font>
-                      <weight>75</weight>
-                      <italic>true</italic>
-                      <bold>true</bold>
-                     </font>
-                    </property>
+                   <widget class="QLabel" name="label_5">
                     <property name="text">
-                     <string>?Q Classifier</string>
+                     <string>   Result</string>
                     </property>
                    </widget>
                   </item>
                   <item>
-                   <widget class="QLabel" name="roadGeneratorQueryQClassifierInfo">
-                    <property name="text">
-                     <string>    N.A.</string>
-                    </property>
-                    <property name="wordWrap">
-                     <bool>true</bool>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="QFrame" name="frame_15">
+                   <widget class="QFrame" name="frame_11">
                     <property name="frameShape">
                      <enum>QFrame::NoFrame</enum>
                     </property>
                     <property name="frameShadow">
                      <enum>QFrame::Raised</enum>
                     </property>
-                    <layout class="QHBoxLayout" name="horizontalLayout_10">
+                    <layout class="QHBoxLayout" name="horizontalLayout_12">
                      <property name="leftMargin">
                       <number>0</number>
                      </property>
@@ -676,26 +635,14 @@
                       <number>0</number>
                      </property>
                      <item>
-                      <widget class="QPushButton" name="roadGeneratorLoadQueryQClassifier">
-                       <property name="sizePolicy">
-                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-                         <horstretch>0</horstretch>
-                         <verstretch>0</verstretch>
-                        </sizepolicy>
-                       </property>
-                       <property name="maximumSize">
-                        <size>
-                         <width>60</width>
-                         <height>16777215</height>
-                        </size>
-                       </property>
+                      <widget class="QPushButton" name="roadGeneratorLoadQueryInitResult">
                        <property name="text">
                         <string>Load</string>
                        </property>
                       </widget>
                      </item>
                      <item>
-                      <spacer name="horizontalSpacer_4">
+                      <spacer name="horizontalSpacer_5">
                        <property name="orientation">
                         <enum>Qt::Horizontal</enum>
                        </property>
@@ -707,10 +654,24 @@
                        </property>
                       </spacer>
                      </item>
+                     <item>
+                      <widget class="QPushButton" name="roadGeneratorSaveQueryInitResult">
+                       <property name="text">
+                        <string>Save</string>
+                       </property>
+                      </widget>
+                     </item>
                     </layout>
                    </widget>
                   </item>
                  </layout>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="roadGeneratorComputeInitialRoadGuess">
+                 <property name="text">
+                  <string>Compute Initial Road Guess</string>
+                 </property>
                 </widget>
                </item>
                <item>
@@ -729,6 +690,13 @@
                  </property>
                  <property name="text">
                   <string>Add Initial Road</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="roadGeneratorTmp">
+                 <property name="text">
+                  <string>Continue</string>
                  </property>
                 </widget>
                </item>

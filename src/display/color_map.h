@@ -42,6 +42,8 @@ public:
     const Color& getDiscreteColor(int idx);
     Color getContinusColor(float value, float low=0.0f, float high=1.0f, bool interpolate=false);
     
+    Color getJetColor(float value);
+    
 private:
     ColorMap();                            // ctor hidden
     ColorMap(ColorMap const&);           // copy ctor hidden

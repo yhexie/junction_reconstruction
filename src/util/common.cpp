@@ -33,6 +33,22 @@ namespace Common
     }
 }
 
+void findMaxElement(const vector<float> hist, int& max_idx){
+    if(hist.size() == 0){
+        max_idx = -1;
+        return;
+    }
+    
+    float max_value = hist[0];
+    max_idx = 0;
+    for(size_t i = 0; i < hist.size(); ++i){
+        if(hist[i] > max_value){
+            max_value = hist[i];
+            max_idx = i;
+        }
+    }
+}
+
 void peakDetector(vector<float>& hist, int window, float ratio, vector<int>& peak_idxs,bool is_closed){
     // Detecting peaks in a histogram
     //is_closed: true - loop around; false: do not loop around.

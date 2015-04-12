@@ -200,6 +200,43 @@ Color ColorMap::getContinusColor(float value, float low, float high, bool interp
     }
 }
 
+Color ColorMap::getJetColor(float value){
+    Color c(1.0f, 1.0f, 1.0f, 1.0f);
+    if(value > 1.0f){
+        return red_;
+    }
+    if (value < 0.0f) {
+        return blue_;
+    }
+    
+    if (value >= 0.0f && value < 0.25f) {
+        float ratio = value / 0.25f;
+        c.r = 0.0f;
+        c.g = ratio;
+        c.b = 0.5f * (1 - ratio);
+    }
+    else if(value >= 0.25f && value < 0.5f) {
+        float ratio = (value - 0.25f) / 0.25f;
+        c.r = ratio;
+        c.g = 1.0f;
+        c.b = 0.0f;
+    }
+    else if(value >= 0.5f && value < 0.75f) {
+        float ratio = (value - 0.5f) / 0.25f;
+        c.r = 1.0f;
+        c.g = 0.5f * (1.0f + ratio);
+        c.b = 0.0f;
+    }
+    else if(value >= 0.75f && value <= 1.0f) {
+        float ratio = (value - 0.75f) / 0.25f;
+        c.r = 1.0f;
+        c.g = 0.5f * (1 - ratio);
+        c.b = 0.0f;
+    }
+    
+    return c;
+}
+
 const Color& ColorMap::getDiscreteColor(int idx)
 {
 	idx = idx%discrete_.size();

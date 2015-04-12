@@ -1,5 +1,6 @@
 build/
 data/
+src/pkgs/
 .DS_Store
 *.pb.h
 *.pb.cc

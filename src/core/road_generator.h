@@ -114,6 +114,9 @@ public:
     
     // Features & Prediction
     bool loadQueryInitClassifer(const string& filename);
+    bool saveQueryInitResult(const string& filename);
+    bool loadQueryInitResult(const string& filename);
+    
     bool hasValidQueryInitDecisionFunction() const { return query_init_df_is_valid_; }
     void applyQueryInitClassifier(float radius);
     void extractQueryInitFeatures(float radius);
@@ -125,8 +128,13 @@ public:
     bool loadQueryQClassifer(const string& filename);
     bool hasValidQueryQDecisionFunction() const { return query_q_df_is_valid_; }
     
+    float estimateRoadWidth(RoadPt& seed_pt);
     
+    bool computeInitialRoadGuess();
     bool addInitialRoad();
+    
+    void tmpFunc();
+    
     void trace_roads();
     void extend_road(int r_idx,
                      vector<int>&,
@@ -134,6 +142,7 @@ public:
                      bool forward = true);
     void generateRoadFromPoints(vector<int>& candidate_pt_idxs,
                                 vector<RoadPt>& road);
+    
     
     void detectOverlappingRoadSeeds(vector<RoadSymbol*>& road_list, vector<vector<int>>& result);
     
@@ -185,22 +194,31 @@ private:
     vector<int>                     query_init_labels_;
     vector<Vertex>                  query_init_feature_properties_; // x, y, heading
     
+    vector<vector<RoadPt> >         initial_roads_;
+    
     query_q_decision_function       query_q_df_;
     bool                            query_q_df_is_valid_;
     vector<query_q_sample_type>     query_q_features_;
     vector<int>                     query_q_labels_;
     vector<Vertex>                  query_q_feature_properties_;
     
-//    vector<Vertex>                  feature_properties_; // x, y, heading
-//    vector<int>                     labels_;
-    
     // For visualization
     vector<Vertex>                  feature_vertices_;
     vector<Color>                   feature_colors_;
     
+    // For DEBUG usage
+    int                             tmp_;
     vector<Vertex>                  lines_to_draw_;
     vector<Color>                   line_colors_;
+    vector<Vertex>                  points_to_draw_;
+    vector<Color>                   point_colors_;
     
+    
+    int                             j;
+    RoadSymbol*                     new_road;
+    float                           cur_cum_length;
+    float                           radius;
+    int                             i_road;
 };
 
 #endif /* defined(__junction_reconstruction__road_generator__) */

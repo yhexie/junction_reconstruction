@@ -619,6 +619,32 @@ void SceneWidget::slotRoadGeneratorApplyQueryInitClassifier(){
     updateGL();
 }
 
+void SceneWidget::slotRoadGeneratorSaveQueryInitResult(){
+    MainWindow* main_window = MainWindow::getInstance();
+    
+    QString filename = QFileDialog::getSaveFileName(main_window, "Save Query Init Classification Results",
+                                                    default_python_test_dir.c_str(),
+                                                    "*.txt");
+    if (filename.isEmpty())
+        return;
+    
+    road_generator_->saveQueryInitResult(filename.toStdString());
+}
+
+void SceneWidget::slotRoadGeneratorLoadQueryInitResult(){
+    MainWindow* main_window = MainWindow::getInstance();
+    
+    QString filename = QFileDialog::getOpenFileName(main_window,
+                                                    "Load Query Init Classification Result",
+                                                    default_python_test_dir.c_str(),
+                                                    " (*.txt)");
+    if (filename.isEmpty())
+        return;
+    
+    road_generator_->loadQueryInitResult(filename.toStdString());
+    updateGL();
+}
+
 void SceneWidget::slotRoadGeneratorLoadQueryQClassifier(){
     MainWindow* main_window = MainWindow::getInstance();
     
@@ -637,8 +663,33 @@ void SceneWidget::slotRoadGeneratorLoadQueryQClassifier(){
     else{
         QTextStream(&str) << "Error occured when loading query init samples from " << filename;
     }
+}
+
+void SceneWidget::slotRoadGeneratorComputeInitialRoadGuess(){
+    if (trajectories_->isEmpty()){
+        QMessageBox msgBox;
+        msgBox.setText("Please load trajectory file.");
+        msgBox.exec();
+        return;
+    }
     
-    main_window->getUi()->roadGeneratorQueryQClassifierInfo->setText(str);
+    if (trajectories_->samples()->size() == 0){
+        QMessageBox msgBox;
+        msgBox.setText("Please sample GPS point cloud.");
+        msgBox.exec();
+        return;
+    }
+    
+    if (road_generator_->nQueryInitLabels() == 0){
+        QMessageBox msgBox;
+        msgBox.setText("Please apply query init classifer for initializing road seeds.");
+        msgBox.exec();
+        return;
+    }
+    
+    road_generator_->computeInitialRoadGuess();
+    
+    updateGL();
 }
 
 void SceneWidget::slotRoadGeneratorAddInitialRoad(){
@@ -656,15 +707,7 @@ void SceneWidget::slotRoadGeneratorAddInitialRoad(){
         return;
     }
     
-    if (!road_generator_->hasValidQueryInitDecisionFunction()){
-        QMessageBox msgBox;
-        msgBox.setText("Please load query init classifer.");
-        msgBox.exec();
-        return;
-    }
-    
-    if (road_generator_->nQueryInitFeatures() == 0 ||
-        road_generator_->nQueryInitLabels() == 0){
+    if (road_generator_->nQueryInitLabels() == 0){
         QMessageBox msgBox;
         msgBox.setText("Please apply query init classifer for initializing road seeds.");
         msgBox.exec();
@@ -672,6 +715,12 @@ void SceneWidget::slotRoadGeneratorAddInitialRoad(){
     }
     
     road_generator_->addInitialRoad();
+    
+    updateGL();
+}
+
+void SceneWidget::slotRoadGeneratorTmp(){
+    road_generator_->tmpFunc();
     
     updateGL();
 }

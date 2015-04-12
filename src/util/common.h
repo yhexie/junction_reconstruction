@@ -22,6 +22,7 @@ typedef pcl::PointCloud<PclPoint>       PclPointCloud;
 typedef pcl::search::Search<PclPoint>   PclSearchTree;
 
 static const float POSITIVE_INFINITY = 1e6;
+static const float LANE_WIDTH        = 3.7f; // in meters
 
 // Visualization Z values
     // Traj
@@ -95,12 +96,32 @@ struct RoadPt{
             n_lanes = 2;
         }
     }
+    
+    RoadPt(float tx,
+           float ty,
+           int thead) : x(tx),
+                        y(ty),
+                        head(thead)
+    {
+        is_oneway = false;
+        n_lanes = 2;
+    }
+    
+    RoadPt(const RoadPt& pt){
+        x = pt.x;
+        y = pt.y;
+        head = pt.head;
+        is_oneway = pt.is_oneway;
+        n_lanes = pt.n_lanes;
+    }
 };
 
 namespace Common{
     std::string int2String(int i, int width);
     void randomK(std::vector<int>& random_k, int k, int N);
 }
+
+void findMaxElement(const vector<float> hist, int& max_idx);
 
 void peakDetector(vector<float>& hist, int window, float ratio, vector<int>& peak_idxs,bool is_closed = true);
 

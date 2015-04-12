@@ -143,8 +143,12 @@ void MainWindow::init(void)
     // Road Generator View
     connect(ui_->roadGeneratorLoadQueryInitClassifier, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorLoadQueryInitClassifier()));
     connect(ui_->roadGeneratorApplyQueryInitClassifier, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorApplyQueryInitClassifier()));
-    connect(ui_->roadGeneratorLoadQueryQClassifier, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorLoadQueryQClassifier()));
+    connect(ui_->roadGeneratorSaveQueryInitResult, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorSaveQueryInitResult()));
+    connect(ui_->roadGeneratorLoadQueryInitResult, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorLoadQueryInitResult()));
+    connect(ui_->roadGeneratorComputeInitialRoadGuess, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorComputeInitialRoadGuess()));
     connect(ui_->roadGeneratorAddInitialRoad, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorAddInitialRoad()));
+    connect(ui_->roadGeneratorTmp, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorTmp()));
+    
     connect(ui_->roadGeneratorDevelopRoadNetwork, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorDevelopRoadNetwork()));
     connect(ui_->roadGeneratorLocalAdjustment, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorLocalAdjustment()));
     connect(ui_->roadGeneratorMCMCOptimization, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorMCMCOptimization()));

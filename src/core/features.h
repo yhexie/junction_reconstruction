@@ -48,6 +48,11 @@ enum QueryQLabel{
     R_BRANCH = 1
 };
 
+void computePointsOnRoad(const vector<RoadPt>& center_line,
+                         set<int>& covered_pts,
+                         map<int, set<int> >& covered_trajs,
+                         Trajectories* trajectories);
+
 void computeQueryInitFeatureAt(float radius,
                                PclPoint& point,
                                Trajectories* trajectories,
@@ -60,16 +65,14 @@ void trainQueryInitClassifier(vector<query_init_sample_type>& samples,
 
 void computeConsistentPointSet(float radius,
                                Trajectories* trajectories,
-                               vector<Vertex>& center_line,
+                               vector<RoadPt>& center_line,
                                set<int>& candidate_point_set,
-                               bool is_oneway = true,
                                bool grow_backward = false);
 
 bool computeQueryQFeatureAt(float radius,
                             Trajectories* trajectories,
                             query_q_sample_type& new_feature,
-                            vector<Vertex>& center_line,
-                            bool is_oneway = true,
+                            vector<RoadPt>& center_line,
                             bool grow_backward = false);
 
 /*
@@ -78,12 +81,42 @@ bool computeQueryQFeatureAt(float radius,
 bool computeQueryQFeatureAtForVisualization(float radius,
                                             Trajectories* trajectories,
                                             query_q_sample_type& new_feature,
-                                            vector<Vertex>& center_line,
+                                            vector<RoadPt>& center_line,
                                             set<int>& candidate_set,
-                                            bool is_oneway = true,
                                             bool grow_backward = false);
 
 // MAP estimation Junction Predictor
+double growModelScore(vector<float>& xs,
+                      vector<float>& ys,
+                      int at_idx,
+                      PclPointCloud::Ptr& points,
+                      vector<vector<int> >& partition,
+                      double dx = 0.0f,
+                      double dy = 0.0f);
+
+float optimizeGrowModel(vector<float>& xs,
+                       vector<float>& ys,
+                       PclPointCloud::Ptr& points,
+                       PclSearchTree::Ptr& search_tree);
+
+float growModelFitting(RoadPt& start_point,
+                       PclPointCloud::Ptr& points,
+                       PclSearchTree::Ptr& search_tree,
+                       vector<RoadPt>& extension,
+                       bool grow_backward = false);
+
+float splitModelFitting(RoadPt& start_point,
+                        PclPointCloud::Ptr& points,
+                        PclSearchTree::Ptr& search_tree,
+                        vector<vector<RoadPt> >& branches,
+                        bool grow_backward = false);
+
+//float crossModelFitting(RoadPt& start_point,
+//                        PclPointCloud::Ptr& points,
+//                        PclSearchTree::Ptr& search_tree,
+//                        vector<RoadPt>& extension,
+//                        bool grow_backward);
+
 bool branchPrediction(float               search_radius,
                       RoadPt&             start_point,
                       set<int>&           candidate_set,

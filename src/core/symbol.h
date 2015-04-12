@@ -70,14 +70,19 @@ public:
     { return "R"; }
     
     // Access & update attributes
-    vector<Vertex>&             center() { return center_; }
-    int&                        nLanes()  { return n_lanes_; }
-    bool&                       isOneway() { return is_oneway_; }
-    float&                      laneWidth() { return lane_width_; }
-    set<int>&                   coveredPts()  { return covered_pts_; }
-    set<int>&                   coveredTrajs() { return covered_trajs_; }
-    map<int, float>&            coveredTrajMinTs() { return covered_traj_min_ts_; }
-    map<int, float>&            coveredTrajMaxTs() { return covered_traj_max_ts_; }
+    vector<RoadPt>&             center() { return center_; }
+    
+    bool                        isOneway() {
+        if(center_.size() == 0){
+            return false;
+        }
+        else{
+            return center_[0].is_oneway;
+        }
+    }
+    
+    set<int>&                   coveredPts()  { return covered_trajs_; }
+    map<int, set<int> >&        coveredTrajs() { return covered_pts_; }
     
     RoadSymbolState&            startState() { return start_state_; }
     RoadSymbolState&            endState()  { return end_state_; }
@@ -95,14 +100,11 @@ private:
     Symbol*                         parent_symbol_;
     Symbol*                         child_symbol_;
     
-    vector<Vertex>                  center_;
-    int                             n_lanes_;
-    bool                            is_oneway_;
+    vector<RoadPt>                  center_;
     float                           lane_width_;
-    set<int>                        covered_pts_; // index of the point contained by this road
-    set<int>                        covered_trajs_; // index of the covered trajectory by this road
-    map<int, float>                 covered_traj_min_ts_; // the minimum time of the covered trajectories
-    map<int, float>                 covered_traj_max_ts_; // the maximum time of the covered trajectories
+    
+    set<int>                        covered_trajs_; // index of the point contained by this road
+    map<int, set<int> >             covered_pts_; // index of the covered trajectory by this road
 };
 
 /////////////////////////////////////////////////////////////////

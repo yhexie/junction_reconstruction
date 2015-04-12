@@ -208,11 +208,11 @@ bool Trajectories::extractTrajectoriesFromRegion(QVector4D bound_box, Trajectori
                 if (!recording) {
                     recording = true;
                     extracted_trajectory.clear();
-                    if (pt_idx > 0) {
-                        // Insert previous point
-                        PclPoint &prev_point = data_->at(trajectory[pt_idx-1]);
-                        extracted_trajectory.push_back(prev_point);
-                    }
+//                    if (pt_idx > 0) {
+//                        // Insert previous point
+//                        PclPoint &prev_point = data_->at(trajectory[pt_idx-1]);
+//                        extracted_trajectory.push_back(prev_point);
+//                    }
                     // Insert this point
                     extracted_trajectory.push_back(point);
                 }
@@ -225,7 +225,7 @@ bool Trajectories::extractTrajectoriesFromRegion(QVector4D bound_box, Trajectori
                 if (recording) {
                     recording = false;
                     // Insert this point
-                    extracted_trajectory.push_back(point);
+                    //extracted_trajectory.push_back(point);
                     if (extracted_trajectory.size() > min_inside_pts + 2) {
                         if(isQualifiedTrajectory(extracted_trajectory))
                             container->insertNewTrajectory(extracted_trajectory);
@@ -529,7 +529,13 @@ bool Trajectories::savePBF(const string &filename){
             int pt_idx_in_data = trajectories_[id_traj][pt_idx];
             new_pt->set_car_id(data_->at(pt_idx_in_data).car_id);
             new_pt->set_speed(data_->at(pt_idx_in_data).speed);
-            new_pt->set_head(data_->at(pt_idx_in_data).head);
+            
+            int old_head = 450 - data_->at(pt_idx_in_data).head;
+            if (old_head > 360) {
+                old_head -= 360;
+            }
+            
+            new_pt->set_head(old_head);
             new_pt->set_lon(data_->at(pt_idx_in_data).lon);
             new_pt->set_lat(data_->at(pt_idx_in_data).lat);
             new_pt->set_x(data_->at(pt_idx_in_data).x);
@@ -577,7 +583,6 @@ void Trajectories::prepareForVisualization(){
         
         // Speed and heading
         float speed = static_cast<float>(data_->at(i).speed) / 100.0f;
-        float heading = static_cast<float>(data_->at(i).head) *PI / 180.0f;
         
         Color tmp_color(0.8, 0.8, 0.8, 1.0);
         if (data_->at(i).head < 45 || data_->at(i).head >= 315 ) {
@@ -606,12 +611,11 @@ void Trajectories::prepareForVisualization(){
         }
         
         float speed_line_length = speed / scale_factor_;
-        float speed_delta_x = speed_line_length * cos(heading);
-        float speed_delta_y = speed_line_length * sin(heading);
+        Eigen::Vector2d speed_dir = speed_line_length * headingTo2dVector(data_->at(i).head);
         vertex_speed_indices_.push_back(vertex_speed_.size());
         vertex_speed_.push_back(Vertex(v.x, v.y, Z_TRAJECTORY_SPEED));
         vertex_speed_indices_.push_back(vertex_speed_.size());
-        vertex_speed_.push_back(Vertex(v.x+speed_delta_x, v.y+speed_delta_y, Z_TRAJECTORY_SPEED));
+        vertex_speed_.push_back(Vertex(v.x+speed_dir.x(), v.y+speed_dir.y(), Z_TRAJECTORY_SPEED));
         
         vertex_speed_colors_.push_back(tmp_color);
         vertex_speed_colors_.push_back(tmp_color);
@@ -1098,8 +1102,17 @@ void Trajectories::singleDirectionSamplePointCloud(float neighborhood_size){
         
         // Collect nearby point headings
         vector<float> heading_hist(N_BINS, 0.0f);
+        map<int, int> traj_heading_vote;
         for (size_t i = 0; i < k_indices.size(); ++i) {
-            float heading = data_->at(k_indices[i]).head;
+            // Each trajectory will only vote one direction for one sample
+            PclPoint& pt = data_->at(k_indices[i]);
+            if(traj_heading_vote.find(pt.id_trajectory) == traj_heading_vote.end()){
+                traj_heading_vote[pt.id_trajectory] = pt.head;
+            }
+        }
+        
+        for(map<int, int>::iterator mit = traj_heading_vote.begin(); mit != traj_heading_vote.end(); ++mit){
+            float heading = mit->second;
             //float speed = data_->at(k_indices[i]).speed * 1.0f / 100.0f;
             
             int angle_bin_idx = floor(heading / DELTA_BIN);

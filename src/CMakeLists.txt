@@ -39,6 +39,7 @@ include_directories("osmium/include")
 
 # Dlib
 include(pkgs/dlib-18.14/dlib/cmake)
+include_directories("pkgs/opengm//include")
 
 # Qt 
 set(CMAKE_AUTOMOC ON)

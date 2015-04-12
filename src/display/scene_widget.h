@@ -76,8 +76,14 @@ signals:
     // Road Generator
     void slotRoadGeneratorLoadQueryInitClassifier();
     void slotRoadGeneratorApplyQueryInitClassifier();
+    void slotRoadGeneratorSaveQueryInitResult();
+    void slotRoadGeneratorLoadQueryInitResult();
+    
     void slotRoadGeneratorLoadQueryQClassifier();
+    void slotRoadGeneratorComputeInitialRoadGuess();
     void slotRoadGeneratorAddInitialRoad();
+    void slotRoadGeneratorTmp();
+    
     void slotRoadGeneratorDevelopRoadNetwork();
     void slotRoadGeneratorLocalAdjustment();
     void slotRoadGeneratorMCMCOptimization();
