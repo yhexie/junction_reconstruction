@@ -70,24 +70,70 @@ public:
     { return "R"; }
     
     // Access & update attributes
-    vector<RoadPt>&             center() { return center_; }
+    const vector<RoadPt>&       centerLine() { return center_line_; }
+    vector<bool>&               centerPtVisited() { return center_pt_visited_; }
+   
+    const map<int, float>&      trajMinTs() { return traj_min_ts_; }
+    const map<int, float>&      trajMaxTs() { return traj_max_ts_; }
     
-    bool                        isOneway() {
-        if(center_.size() == 0){
+    
+    void addRoadPtAtEnd(RoadPt &pt) {
+        center_line_.push_back(pt);
+        center_pt_visited_.push_back(false);
+    }
+    
+    void addRoadPtAtFront(RoadPt &pt) {
+        center_line_.insert(center_line_.begin(), pt);
+        center_pt_visited_.insert(center_pt_visited_.begin(), false);
+    }
+    
+    void clearCenter(){
+        center_line_.clear();
+        center_pt_visited_.clear();
+        clearGPSInfo();
+    }
+    
+    void clearGPSInfo(){
+        covered_pts_.clear();
+        covered_pt_scores_.clear();
+        covered_trajs_.clear();
+        cur_max_traj_score_ = 0.0f;
+        cur_min_traj_score_ = 1e10;
+        covered_traj_scores_.clear();
+        covered_traj_aligned_scores_.clear();
+        covered_traj_unaligned_scores_.clear();
+        traj_min_ts_.clear();
+        traj_max_ts_.clear();
+    }
+    
+    bool isOneway() {
+        if(center_line_.size() == 0){
             return false;
         }
         else{
-            return center_[0].is_oneway;
+            return center_line_[0].is_oneway;
         }
     }
     
-    set<int>&                   coveredPts()  { return covered_trajs_; }
-    map<int, set<int> >&        coveredTrajs() { return covered_pts_; }
+    bool containsPt(int);
+    
+    pair<int, int> stats() {
+        pair<int, int> result;
+        result.first = covered_pts_.size();
+        result.second = covered_trajs_.size();
+        return result;
+    }
+    
+    pair<bool, bool> containsTraj(int);
+    
+    void insertPt(int pt_idx,
+                  float pt_timestamp,
+                  float probability,
+                  int pt_traj_id,
+                  bool is_aligned);
     
     RoadSymbolState&            startState() { return start_state_; }
     RoadSymbolState&            endState()  { return end_state_; }
-    void                        setParentSymbol(Symbol* parent) { parent_symbol_ = parent; }
-    void                        setChildSymbol(Symbol* child) { child_symbol_ = child; }
     
     // Rendering
     bool                        getDrawingVertices(std::vector<Vertex> &v);
@@ -97,14 +143,23 @@ private:
     RoadSymbolState                 start_state_;
     RoadSymbolState                 end_state_;
     
-    Symbol*                         parent_symbol_;
-    Symbol*                         child_symbol_;
+    vector<RoadPt>                  center_line_;
+    vector<bool>                    center_pt_visited_; // Used as an indicator to speed up computing GPS point on road
     
-    vector<RoadPt>                  center_;
     float                           lane_width_;
     
-    set<int>                        covered_trajs_; // index of the point contained by this road
-    map<int, set<int> >             covered_pts_; // index of the covered trajectory by this road
+    set<int>                        covered_pts_; // index of the point contained by this road
+    map<int, float>                 covered_pt_scores_; // prpbability of each point belongs to this road
+    set<int>                        covered_trajs_; // index of the trajectory covered by this road
+    map<int, float>                 covered_traj_scores_; // sum of the prpbability of points belongs
+   
+    float                           cur_max_traj_score_;
+    float                           cur_min_traj_score_;
+    
+    map<int, float>                 covered_traj_aligned_scores_; // all true for oneway, for twoway road, this mark whether the traj is in opposite direction to the center line.
+    map<int, float>                 covered_traj_unaligned_scores_; // all true for oneway, for twoway road, this mark whether the traj is in opposite direction to the center line.
+    map<int, float>                 traj_min_ts_; // Each trajectory has a min and max time on this road
+    map<int, float>                 traj_max_ts_;
 };
 
 /////////////////////////////////////////////////////////////////

@@ -51,6 +51,16 @@ SceneWidget::SceneWidget(QWidget * parent, const QGLWidget * shareWidget, Qt::Wi
     right_click_menu_->addAction("Open OSM", this, SLOT(slotOpenOsmMap()));
     
     show_map_ = true;
+    
+    // Initialize parameters
+    Parameters::getInstance().searchRadius() = MainWindow::getInstance()->getUi()->parameterSearchRadius->value();
+    Parameters::getInstance().gpsSigma() = MainWindow::getInstance()->getUi()->parameterGPSErrorSigma->value();
+    Parameters::getInstance().gpsMaxHeadingError() = MainWindow::getInstance()->getUi()->parameterGPSErrorHeading->value();
+    Parameters::getInstance().deltaGrowingLength() = MainWindow::getInstance()->getUi()->parameterDeltaGrowingLength->value();
+    Parameters::getInstance().branchPredictorExtensionRatio() = MainWindow::getInstance()->getUi()->parameterBranchPredictorExtensionRatio->value();
+    Parameters::getInstance().branchPredictorMaxTExtension() = MainWindow::getInstance()->getUi()->parameterBranchPredictorMaxTExtension->value();
+    
+    
 //    show_graph_ = true;
 }
 
@@ -955,6 +965,33 @@ void SceneWidget::slotSaveQueryQClassifer(){
     QString str;
     QTextStream(&str) << "Query Q classifier saved as: " << filename;
     main_window->getUi()->featureInfo->setText(str);
+}
+
+/*
+    Parameters
+ */
+void SceneWidget::slotParameterSearchRadiusChanged(double r){
+    Parameters::getInstance().searchRadius() = r;
+}
+
+void SceneWidget::slotParameterGpsErrorSigmaChanged(double s){
+    Parameters::getInstance().gpsSigma() = s;
+}
+
+void SceneWidget::slotParameterGpsErrorHeadinbgChanged(double h){
+    Parameters::getInstance().gpsMaxHeadingError() = h;
+}
+
+void SceneWidget::slotParameterDeltaGrowingLengthChanged(double d){
+    Parameters::getInstance().deltaGrowingLength() = d;
+}
+
+void SceneWidget::slotParameterBranchPredictorExtensionRatioChanged(double new_ratio){
+    Parameters::getInstance().branchPredictorExtensionRatio() = new_ratio;
+}
+
+void SceneWidget::slotParameterBranchPredictorMaxTExtension(double new_max_t_extension){
+    Parameters::getInstance().branchPredictorMaxTExtension() = new_max_t_extension;
 }
 
 /*

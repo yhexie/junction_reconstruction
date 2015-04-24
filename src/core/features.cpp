@@ -15,7 +15,9 @@
 #include <boost/property_map/property_map.hpp>
 #include <boost/graph/kruskal_min_spanning_tree.hpp>
 #include <boost/graph/depth_first_search.hpp>
+#include <boost/graph/dijkstra_shortest_paths.hpp>
 #include <boost/graph/connected_components.hpp>
+#include <boost/graph/topological_sort.hpp>
 
 using namespace boost;
 
@@ -207,7 +209,8 @@ void trainQueryInitClassifier(vector<query_init_sample_type>& samples,
 
 void computePointsOnRoad(const vector<RoadPt>& center_line,
                          set<int>& covered_pts,
-                         map<int, set<int> >& covered_trajs,
+                         set<int>& covered_trajs,
+                         map<int, bool>& aligned_with_road,
                          Trajectories* trajectories){
     // Compute GPS points that fall on the road represented by vector<RoadPt>& center_line
     covered_pts.clear();
@@ -270,7 +273,8 @@ void computePointsOnRoad(const vector<RoadPt>& center_line,
                 float parallel_dist = abs(dir.cross(vec)[2]);
                 if(parallel_dist < WIDTH_RATIO * r_pt.n_lanes * LANE_WIDTH){
                     covered_pts.insert(nearby_pt_idx);
-                    covered_trajs[nearby_id_traj].insert(nearby_pt.id_sample);
+                    covered_trajs.insert(nearby_id_traj);
+                    aligned_with_road[nearby_id_traj] = true;
                 }
             }
             else{
@@ -288,7 +292,8 @@ void computePointsOnRoad(const vector<RoadPt>& center_line,
                     if (parallel_dist < LANE_WIDTH) {
                         if(abs(parallel_dist) < WIDTH_RATIO * half_width){
                             covered_pts.insert(nearby_pt_idx);
-                            covered_trajs[nearby_id_traj].insert(nearby_pt.id_sample);
+                            covered_trajs.insert(nearby_id_traj);
+                            aligned_with_road[nearby_id_traj] = true;
                         }
                     }
                 }
@@ -297,7 +302,8 @@ void computePointsOnRoad(const vector<RoadPt>& center_line,
                     if (parallel_dist > -1.0f * LANE_WIDTH) {
                         if(abs(parallel_dist) < WIDTH_RATIO * half_width){
                             covered_pts.insert(nearby_pt_idx);
-                            covered_trajs[nearby_id_traj].insert(nearby_pt.id_sample);
+                            covered_trajs.insert(nearby_id_traj);
+                            aligned_with_road[nearby_id_traj] = false;
                         }
                     }
                 }
@@ -306,10 +312,10 @@ void computePointsOnRoad(const vector<RoadPt>& center_line,
     }
 }
 
-void computeConsistentPointSet(float radius,
-                               Trajectories* trajectories,
-                               vector<RoadPt>& center_line,
+void computeConsistentPointSet(Trajectories* trajectories,
+                               const vector<RoadPt>& center_line,
                                set<int>& candidate_point_set,
+                               map<int, bool>& traj_aligned_with_road,
                                bool grow_backward
                                ){
     candidate_point_set.clear();
@@ -319,15 +325,39 @@ void computeConsistentPointSet(float radius,
         return;
     }
     
-    float MAX_DIST_TO_ORIGIN        = 4.0f * radius;
-    float MAX_T_EXTENSION         = 30.0f; // in seconds. Include points that extend current point by at most this value.
+    Parameters& params = Parameters::getInstance();
+    
+    float MAX_DIST_TO_ORIGIN        = params.branchPredictorExtensionRatio() * params.searchRadius();
+    float MAX_T_EXTENSION         = params.branchPredictorMaxTExtension(); // in seconds. Include points that extend current point by at most this value.
     
     set<int> covered_pts;
-    map<int, set<int> > covered_trajs;
+    set<int> covered_trajs;
     computePointsOnRoad(center_line,
                         covered_pts,
                         covered_trajs,
+                        traj_aligned_with_road,
                         trajectories);
+    
+    map<int, float> traj_min_ts;
+    map<int, float> traj_max_ts;
+    
+    for (set<int>::iterator it = covered_pts.begin(); it != covered_pts.end(); ++it) {
+        PclPoint& covered_pt = trajectories->data()->at(*it);
+        int covered_traj_idx = covered_pt.id_trajectory;
+        if (traj_min_ts.find(covered_traj_idx) != traj_min_ts.end()) {
+            if (traj_min_ts[covered_traj_idx] > covered_pt.t) {
+                traj_min_ts[covered_traj_idx] = covered_pt.t;
+            }
+            
+            if (traj_max_ts[covered_traj_idx] < covered_pt.t) {
+                traj_max_ts[covered_traj_idx] = covered_pt.t;
+            }
+        }
+        else{
+            traj_min_ts[covered_traj_idx] = covered_pt.t;
+            traj_max_ts[covered_traj_idx] = covered_pt.t;
+        }
+    }
     
     PclPoint orig_pt;
     if (grow_backward) {
@@ -335,7 +365,7 @@ void computeConsistentPointSet(float radius,
                               center_line.front().y,
                               0.0f);
         orig_pt.head = floor(center_line.front().head);
-
+        
     }
     else{
         orig_pt.setCoordinate(center_line.back().x,
@@ -346,170 +376,258 @@ void computeConsistentPointSet(float radius,
     
     Eigen::Vector2d orig_dir = headingTo2dVector(orig_pt.head);
     
-    set<int> visited_traj_idxs;
-    for(set<int>::iterator pit = covered_pts.begin(); pit != covered_pts.end(); ++pit){
-        PclPoint& nearby_pt = trajectories->data()->at(*pit);
-        int nearby_traj_idx = nearby_pt.id_trajectory;
-        if (visited_traj_idxs.find(nearby_traj_idx) != visited_traj_idxs.end()) {
-            // This trajectory has already been visited
-            continue;
+    // Search all possible points
+    vector<int> k_indices;
+    vector<float> k_dist_sqrs;
+    trajectories->tree()->radiusSearch(orig_pt,
+                                       MAX_DIST_TO_ORIGIN,
+                                       k_indices,
+                                       k_dist_sqrs);
+    
+    for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
+        PclPoint& nb_pt = trajectories->data()->at(*it);
+        
+        Eigen::Vector2d vec_to_orig(nb_pt.x - orig_pt.x,
+                                    nb_pt.y - orig_pt.y);
+        
+        float dot_value = orig_dir.dot(vec_to_orig);
+        
+        if (grow_backward) {
+            if (dot_value > 1.0f) {
+                continue;
+            }
         }
-        
-        // Find closest point on the trajectory to orig_pt
-        const vector<int>& traj_pt_idx = trajectories->trajectories()[nearby_traj_idx];
-        set<int>& traj_on_road_idxs = covered_trajs[nearby_traj_idx];
-        
-        float min_dist = 1e10;
-        int min_idx = -1;
-        for (set<int>::iterator pit = traj_on_road_idxs.begin(); pit != traj_on_road_idxs.end(); ++pit) {
-            int pt_idx = traj_pt_idx[*pit];
-            
-            PclPoint& tmp_pt = trajectories->data()->at(pt_idx);
-            Eigen::Vector2d vec(tmp_pt.x - orig_pt.x,
-                                tmp_pt.y - orig_pt.y);
-            float dist = vec.norm();
-            if (dist < min_dist) {
-                min_dist = dist;
-                min_idx = *pit;
+        else{
+            if (dot_value < -1.0f) {
+                continue;
             }
         }
         
-        if (min_idx != -1) {
-            PclPoint& closest_pt = trajectories->data()->at(traj_pt_idx[min_idx]);
-            float min_dist = 1e10;
-            int min_dist_idx = -1;
-            for(size_t s = 0; s < center_line.size(); ++s){
-                float delta_x = closest_pt.x - center_line[s].x;
-                float delta_y = closest_pt.y - center_line[s].y;
-                float dist = sqrt(delta_x*delta_x + delta_y*delta_y);
-                if (dist < min_dist) {
-                    min_dist = dist;
-                    min_dist_idx = s;
-                }
-            }
-            
-            float t0 = closest_pt.t;
-            float delta_heading = abs(deltaHeading1MinusHeading2(closest_pt.head, center_line[min_dist_idx].head));
-            
-            if (grow_backward) {
-                if (delta_heading > 90.0f) {
-                    // Opposite direction
-                    for (size_t s = min_idx; s < traj_pt_idx.size(); ++s) {
-                        PclPoint& tmp_pt = trajectories->data()->at(traj_pt_idx[s]);
-                        float delta_t = (tmp_pt.t - t0);
-                        
-                        if (delta_t < 0) {
-                            continue;
-                        }
-                        
-                        if (delta_t > MAX_T_EXTENSION) {
-                            continue;
-                        }
-                        
-                        Eigen::Vector2d vec(tmp_pt.x - orig_pt.x,
-                                            tmp_pt.y - orig_pt.y);
-                        float dist = vec.norm();
-                        if (dist > MAX_DIST_TO_ORIGIN) {
-                            continue;
-                        }
-                        
-                        float dot_value = vec.dot(orig_dir);
-                        
-                        if (dot_value < 1.0f) {
-                            candidate_point_set.insert(traj_pt_idx[s]);
-                        }
-                    }
-                }
-                else{
-                    // Same direction
-                    for (int s = min_idx; s >=0; --s) {
-                        PclPoint& tmp_pt = trajectories->data()->at(traj_pt_idx[s]);
-                        float delta_t = t0 - tmp_pt.t;
-                        
-                        if (delta_t < 0) {
-                            continue;
-                        }
-                        
-                        if (delta_t > MAX_T_EXTENSION) {
-                            continue;
-                        }
-                        
-                        Eigen::Vector2d vec(tmp_pt.x - orig_pt.x,
-                                            tmp_pt.y - orig_pt.y);
-                        float dist = vec.norm();
-                        if (dist > MAX_DIST_TO_ORIGIN) {
-                            continue;
-                        }
-                        
-                        float dot_value = vec.dot(orig_dir);
-                        
-                        if (dot_value < 1.0f) {
-                            candidate_point_set.insert(traj_pt_idx[s]);
-                        }
-                    }
-                }
+        // Check if the point traj is in covered_trajs.
+        if (covered_trajs.find(nb_pt.id_trajectory) != covered_trajs.end()) {
+            float delta_t;
+            if (traj_aligned_with_road[nb_pt.id_trajectory]) {
+                delta_t = nb_pt.t - traj_max_ts[nb_pt.id_trajectory];
             }
             else{
-                if (delta_heading > 90.0f) {
-                    // Opposite direction
-                    for (int s = min_idx; s >=0; --s) {
-                        PclPoint& tmp_pt = trajectories->data()->at(traj_pt_idx[s]);
-                        float delta_t = t0 - tmp_pt.t;
-                        
-                        if (delta_t < 0) {
-                            continue;
-                        }
-                        
-                        if (delta_t > MAX_T_EXTENSION) {
-                            continue;
-                        }
-                        
-                        Eigen::Vector2d vec(tmp_pt.x - orig_pt.x,
-                                            tmp_pt.y - orig_pt.y);
-                        float dist = vec.norm();
-                        if (dist > MAX_DIST_TO_ORIGIN) {
-                            continue;
-                        }
-                        
-                        float dot_value = vec.dot(orig_dir);
-                        
-                        if (dot_value > -1.0f) {
-                            candidate_point_set.insert(traj_pt_idx[s]);
-                        }
-                    }
-                }
-                else{
-                    // Same direction
-                    for (size_t s = min_idx; s < traj_pt_idx.size(); ++s) {
-                        PclPoint& tmp_pt = trajectories->data()->at(traj_pt_idx[s]);
-                        float delta_t = (tmp_pt.t - t0);
-                        
-                        if (delta_t < 0) {
-                            continue;
-                        }
-                        
-                        if (delta_t > MAX_T_EXTENSION) {
-                            continue;
-                        }
-                        
-                        Eigen::Vector2d vec(tmp_pt.x - orig_pt.x,
-                                            tmp_pt.y - orig_pt.y);
-                        float dist = vec.norm();
-                        if (dist > MAX_DIST_TO_ORIGIN) {
-                            continue;
-                        }
-                        
-                        float dot_value = vec.dot(orig_dir);
-                        
-                        if (dot_value > -1.0f) {
-                            candidate_point_set.insert(traj_pt_idx[s]);
-                        }
-                    }
-                }
+                delta_t = traj_min_ts[nb_pt.id_trajectory] - nb_pt.t;
+            }
+            
+            if (delta_t < 0) {
+                continue;
+            }
+            
+            if (delta_t < MAX_T_EXTENSION) {
+                candidate_point_set.insert(*it);
             }
         }
     }
 }
+
+//void computeConsistentPointSet(float radius,
+//                               Trajectories* trajectories,
+//                               vector<RoadPt>& center_line,
+//                               set<int>& candidate_point_set,
+//                               bool grow_backward
+//                               ){
+//    candidate_point_set.clear();
+//    
+//    if (center_line.size() < 2) {
+//        cout << "ERROR from computeConsistentPointSet: center_line size less than 2" << endl;
+//        return;
+//    }
+//    
+//    float MAX_DIST_TO_ORIGIN        = 4.0f * radius;
+//    float MAX_T_EXTENSION         = 30.0f; // in seconds. Include points that extend current point by at most this value.
+//    
+//    set<int> covered_pts;
+//    set<int> covered_trajs;
+//    computePointsOnRoad(center_line,
+//                        covered_pts,
+//                        covered_trajs,
+//                        trajectories);
+//    
+//    PclPoint orig_pt;
+//    if (grow_backward) {
+//        orig_pt.setCoordinate(center_line.front().x,
+//                              center_line.front().y,
+//                              0.0f);
+//        orig_pt.head = floor(center_line.front().head);
+//
+//    }
+//    else{
+//        orig_pt.setCoordinate(center_line.back().x,
+//                              center_line.back().y,
+//                              0.0f);
+//        orig_pt.head = floor(center_line.back().head);
+//    }
+//    
+//    Eigen::Vector2d orig_dir = headingTo2dVector(orig_pt.head);
+//    
+//    set<int> visited_traj_idxs;
+//    for(set<int>::iterator pit = covered_pts.begin(); pit != covered_pts.end(); ++pit){
+//        PclPoint& nearby_pt = trajectories->data()->at(*pit);
+//        int nearby_traj_idx = nearby_pt.id_trajectory;
+//        if (visited_traj_idxs.find(nearby_traj_idx) != visited_traj_idxs.end()) {
+//            // This trajectory has already been visited
+//            continue;
+//        }
+//        
+//        // Find closest point on the trajectory to orig_pt
+//        const vector<int>& traj_pt_idx = trajectories->trajectories()[nearby_traj_idx];
+//        set<int>& traj_on_road_idxs = covered_trajs[nearby_traj_idx];
+//        
+//        float min_dist = 1e10;
+//        int min_idx = -1;
+//        for (set<int>::iterator pit = traj_on_road_idxs.begin(); pit != traj_on_road_idxs.end(); ++pit) {
+//            int pt_idx = traj_pt_idx[*pit];
+//            
+//            PclPoint& tmp_pt = trajectories->data()->at(pt_idx);
+//            Eigen::Vector2d vec(tmp_pt.x - orig_pt.x,
+//                                tmp_pt.y - orig_pt.y);
+//            float dist = vec.norm();
+//            if (dist < min_dist) {
+//                min_dist = dist;
+//                min_idx = *pit;
+//            }
+//        }
+//        
+//        if (min_idx != -1) {
+//            PclPoint& closest_pt = trajectories->data()->at(traj_pt_idx[min_idx]);
+//            float min_dist = 1e10;
+//            int min_dist_idx = -1;
+//            for(size_t s = 0; s < center_line.size(); ++s){
+//                float delta_x = closest_pt.x - center_line[s].x;
+//                float delta_y = closest_pt.y - center_line[s].y;
+//                float dist = sqrt(delta_x*delta_x + delta_y*delta_y);
+//                if (dist < min_dist) {
+//                    min_dist = dist;
+//                    min_dist_idx = s;
+//                }
+//            }
+//            
+//            float t0 = closest_pt.t;
+//            float delta_heading = abs(deltaHeading1MinusHeading2(closest_pt.head, center_line[min_dist_idx].head));
+//            
+//            if (grow_backward) {
+//                if (delta_heading > 90.0f) {
+//                    // Opposite direction
+//                    for (size_t s = min_idx; s < traj_pt_idx.size(); ++s) {
+//                        PclPoint& tmp_pt = trajectories->data()->at(traj_pt_idx[s]);
+//                        float delta_t = (tmp_pt.t - t0);
+//                        
+//                        if (delta_t < 0) {
+//                            continue;
+//                        }
+//                        
+//                        if (delta_t > MAX_T_EXTENSION) {
+//                            continue;
+//                        }
+//                        
+//                        Eigen::Vector2d vec(tmp_pt.x - orig_pt.x,
+//                                            tmp_pt.y - orig_pt.y);
+//                        float dist = vec.norm();
+//                        if (dist > MAX_DIST_TO_ORIGIN) {
+//                            continue;
+//                        }
+//                        
+//                        float dot_value = vec.dot(orig_dir);
+//                        
+//                        if (dot_value < 1.0f) {
+//                            candidate_point_set.insert(traj_pt_idx[s]);
+//                        }
+//                    }
+//                }
+//                else{
+//                    // Same direction
+//                    for (int s = min_idx; s >=0; --s) {
+//                        PclPoint& tmp_pt = trajectories->data()->at(traj_pt_idx[s]);
+//                        float delta_t = t0 - tmp_pt.t;
+//                        
+//                        if (delta_t < 0) {
+//                            continue;
+//                        }
+//                        
+//                        if (delta_t > MAX_T_EXTENSION) {
+//                            continue;
+//                        }
+//                        
+//                        Eigen::Vector2d vec(tmp_pt.x - orig_pt.x,
+//                                            tmp_pt.y - orig_pt.y);
+//                        float dist = vec.norm();
+//                        if (dist > MAX_DIST_TO_ORIGIN) {
+//                            continue;
+//                        }
+//                        
+//                        float dot_value = vec.dot(orig_dir);
+//                        
+//                        if (dot_value < 1.0f) {
+//                            candidate_point_set.insert(traj_pt_idx[s]);
+//                        }
+//                    }
+//                }
+//            }
+//            else{
+//                if (delta_heading > 90.0f) {
+//                    // Opposite direction
+//                    for (int s = min_idx; s >=0; --s) {
+//                        PclPoint& tmp_pt = trajectories->data()->at(traj_pt_idx[s]);
+//                        float delta_t = t0 - tmp_pt.t;
+//                        
+//                        if (delta_t < 0) {
+//                            continue;
+//                        }
+//                        
+//                        if (delta_t > MAX_T_EXTENSION) {
+//                            continue;
+//                        }
+//                        
+//                        Eigen::Vector2d vec(tmp_pt.x - orig_pt.x,
+//                                            tmp_pt.y - orig_pt.y);
+//                        float dist = vec.norm();
+//                        if (dist > MAX_DIST_TO_ORIGIN) {
+//                            continue;
+//                        }
+//                        
+//                        float dot_value = vec.dot(orig_dir);
+//                        
+//                        if (dot_value > -1.0f) {
+//                            candidate_point_set.insert(traj_pt_idx[s]);
+//                        }
+//                    }
+//                }
+//                else{
+//                    // Same direction
+//                    for (size_t s = min_idx; s < traj_pt_idx.size(); ++s) {
+//                        PclPoint& tmp_pt = trajectories->data()->at(traj_pt_idx[s]);
+//                        float delta_t = (tmp_pt.t - t0);
+//                        
+//                        if (delta_t < 0) {
+//                            continue;
+//                        }
+//                        
+//                        if (delta_t > MAX_T_EXTENSION) {
+//                            continue;
+//                        }
+//                        
+//                        Eigen::Vector2d vec(tmp_pt.x - orig_pt.x,
+//                                            tmp_pt.y - orig_pt.y);
+//                        float dist = vec.norm();
+//                        if (dist > MAX_DIST_TO_ORIGIN) {
+//                            continue;
+//                        }
+//                        
+//                        float dot_value = vec.dot(orig_dir);
+//                        
+//                        if (dot_value > -1.0f) {
+//                            candidate_point_set.insert(traj_pt_idx[s]);
+//                        }
+//                    }
+//                }
+//            }
+//        }
+//    }
+//}
 
 //void computeConsistentPointSet(float radius,
 //                               Trajectories* trajectories,
@@ -902,11 +1020,11 @@ bool computeQueryQFeatureAt(float radius,
     // Find trajectories that falls on this road, and compute angle distribution
     PclPoint pt;
     set<int> candidate_point_set;
-    
-    computeConsistentPointSet(radius,
-                              trajectories,
+    map<int, bool> traj_aligned_with_road;
+    computeConsistentPointSet(trajectories,
                               center_line,
                               candidate_point_set,
+                              traj_aligned_with_road,
                               grow_backward);
     
     // Now candidate points are stored in candidate_point_set, we can start computing angle distributions of these points w.r.t. the original query point.
@@ -1072,10 +1190,11 @@ bool computeQueryQFeatureAtForVisualization(float radius,
         return false;
     }
     
-    computeConsistentPointSet(radius,
-                              trajectories,
+    map<int, bool> traj_aligned_with_road;
+    computeConsistentPointSet(trajectories,
                               center_line,
                               candidate_point_set,
+                              traj_aligned_with_road,
                               grow_backward);
     
     return true;
@@ -1355,321 +1474,327 @@ private:
     vector<int>& parents_;
 };
 
-float growModelFitting(RoadPt& start_point,
-                       PclPointCloud::Ptr& points,
-                       PclSearchTree::Ptr& search_tree,
-                       vector<RoadPt>& extension,
-                       bool grow_backward){
-    if (points->size() == 0) {
-        return 0.0f;
-    }
-    
-    bool is_oneway = start_point.is_oneway;
-    
-    // Move point around as skeleton extraction
-    PclPointCloud::Ptr tmp_points(new PclPointCloud);
-    PclSearchTree::Ptr tmp_search_tree(new pcl::search::FlannSearch<PclPoint>(false));
-   
-    for (size_t i = 0; i < points->size(); ++i) {
-        tmp_points->push_back(points->at(i));
-    }
-
-    tmp_search_tree->setInputCloud(tmp_points);
-    
-    float cum_change;
-    int MAX_ITER = 30;
-    float HEADING_THRESHOLD = 15.0f;
-    int i_iter = 0;
-    float search_radius = 15.0f;
-    while (i_iter < MAX_ITER) {
-        cum_change = 0.0f;
-        
-        for (size_t i = 0; i < tmp_points->size(); ++i) {
-            PclPoint& pt = tmp_points->at(i);
-            Eigen::Vector3d pt_dir = headingTo3dVector(pt.head);
-            Eigen::Vector3d pt_perp_dir(-pt_dir[1], pt_dir[0], 0.0f);
-            
-            vector<int> k_indices;
-            vector<float> k_dist_sqrs;
-            tmp_search_tree->radiusSearch(pt, search_radius, k_indices, k_dist_sqrs);
-            
-            float cum_perp_proj = 0.0f;
-            int   count = 0;
-            for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
-                PclPoint& nb_pt = tmp_points->at(*it);
-                float delta_heading = abs(deltaHeading1MinusHeading2(nb_pt.head, pt.head));
-                if (!is_oneway && delta_heading > 90.0f) {
-                    delta_heading = 180.0f - delta_heading;
-                }
-                
-                if (delta_heading < HEADING_THRESHOLD) {
-                    Eigen::Vector3d vec(nb_pt.x - pt.x, nb_pt.y - pt.y, 0.0f);
-                    
-                    cum_perp_proj += pt_dir.cross(vec)[2];
-                    
-                    count++;
-                }
-            }
-            
-            if (count != 0) {
-                cum_perp_proj /= count;
-                
-                cum_change += abs(cum_perp_proj);
-                
-                Eigen::Vector3d v0(pt.x, pt.y, 0.0f);
-                v0 += (cum_perp_proj * pt_perp_dir);
-                pt.x = v0.x();
-                pt.y = v0.y();
-            }
-        }
-        
-        tmp_search_tree->setInputCloud(tmp_points);
-        
-        if (cum_change < 1.0f) {
-            break;
-        }
-        
-        i_iter++;
-    }
-    
-    // Move point around as skeleton extraction
-    PclPointCloud::Ptr simplified_points(new PclPointCloud);
-    PclSearchTree::Ptr simplified_search_tree(new pcl::search::FlannSearch<PclPoint>(false));
-    
-    vector<int> is_covered(tmp_points->size(), false);
-    for (size_t i = 0; i < tmp_points->size(); ++i) {
-        if (is_covered[i]) {
-            continue;
-        }
-        
-        is_covered[i] = true;
-        PclPoint& pt = tmp_points->at(i);
-        simplified_points->push_back(pt);
-        
-        vector<int> k_indices;
-        vector<float> k_dist_sqrs;
-        
-        tmp_search_tree->radiusSearch(pt, 5.0f, k_indices, k_dist_sqrs);
-        for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
-            if (is_covered[*it]) {
-                continue;
-            }
-            
-            PclPoint& nearby_pt = tmp_points->at(*it);
-            float delta_heading = abs(deltaHeading1MinusHeading2(nearby_pt.head, pt.head));
-            
-            if (!is_oneway && delta_heading > 90.0f) {
-                delta_heading = 180.0f - delta_heading;
-            }
-            
-            if (delta_heading < HEADING_THRESHOLD) {
-                is_covered[*it] = true;
-            }
-        }
-    }
-    
-    simplified_search_tree->setInputCloud(simplified_points);
-    
-    // Build a undirected graph
-    typedef adjacency_list<vecS, vecS, undirectedS, property<vertex_distance_t, float>, property < edge_weight_t, float> > graph_t;
-    typedef typename graph_t::edge_property_type Weight;
-   
-    typedef graph_traits<graph_t>::vertex_descriptor vertex_descriptor;
-    typedef graph_traits<graph_t>::edge_descriptor edge_descriptor;
-    typedef pair<int, int> E;
-    vector<float> edge_weights;
-    vector<E>     edge_list;
-    
-    vector<int> k_indices;
-    vector<float> k_dist_sqrs;
-    PclPoint pt;
-    pt.setCoordinate(start_point.x, start_point.y, 0.0f);
-    pt.head = start_point.head;
-    
-    Eigen::Vector2d start_pt_dir = headingTo2dVector(pt.head);
-    
-    simplified_search_tree->radiusSearch(pt, 1.2f * search_radius, k_indices, k_dist_sqrs);
-    
-    for (size_t i = 0; i != k_indices.size(); ++i) {
-        PclPoint nb_pt = simplified_points->at(k_indices[i]);
-        Eigen::Vector2d nb_pt_dir = headingTo2dVector(nb_pt.head);
-        
-        float dot_value = nb_pt_dir.dot(start_pt_dir);
-        if (!is_oneway) {
-            dot_value = abs(dot_value);
-        }
-   
-        float edge_weight = sqrt(k_dist_sqrs[i]) * (2.0f - dot_value);
-        
-        edge_list.push_back(E(0, k_indices[i]+1));
-        edge_weights.push_back(edge_weight);
-    }
-    
-    for (size_t i = 0; i < simplified_points->size(); ++i) {
-        PclPoint& this_pt = simplified_points->at(i);
-        Eigen::Vector2d this_pt_dir = headingTo2dVector(this_pt.head);
-        vector<int> k_inds;
-        vector<float> k_dists;
-        
-        simplified_search_tree->radiusSearch(this_pt, 1.2f * search_radius, k_inds, k_dists);
-        
-        for (size_t s = 0; s != k_inds.size(); ++s) {
-            if (k_inds[s] == i) {
-                continue;
-            }
-            
-            PclPoint nb_pt = simplified_points->at(k_inds[s]);
-            Eigen::Vector2d nb_pt_dir = headingTo2dVector(nb_pt.head);
-            
-            float dot_value = nb_pt_dir.dot(this_pt_dir);
-            if (!is_oneway) {
-                dot_value = abs(dot_value);
-            }
-            
-            float edge_weight = sqrt(k_dists[s]) * (2.0f - dot_value);
-            
-            edge_list.push_back(E(i+1, k_inds[s]+1));
-            edge_weights.push_back(edge_weight);
-        }
-    }
-    
-    graph_t G;
-    
-    for(size_t i = 0; i < edge_list.size(); ++i){
-        add_edge(edge_list[i].first, edge_list[i].second, edge_weights[i], G);
-    }
-    
-    vector<edge_descriptor> spanning_tree;
-    kruskal_minimum_spanning_tree(G, back_inserter(spanning_tree));;
-    
-    property_map<graph_t, edge_weight_t>::type w = get(edge_weight, G);
-    
-    extension.clear();
-    int count = 0;
-    
-    // Construct the spanning tree
-    graph_t MST;
-    
-    for (vector<edge_descriptor>::iterator ei = spanning_tree.begin();
-         ei != spanning_tree.end(); ++ei) {
-        count ++;
-        int source_idx = source(*ei, G);
-        int target_idx = target(*ei, G);
-        
-        add_edge(source_idx, target_idx, get(w, *ei),MST);
-    }
-    
-    vector<int> depth(num_vertices(MST), 0);
-    vector<int> parents(num_vertices(MST), -1);
-    if (depth.size() > 0) {
-        dfs_depth_visitor vis(depth, parents);
-        
-        depth_first_search(MST, visitor(vis).root_vertex(0));
-        
-        int max_depth = -1;
-        int max_depth_idx = -1;
-        for(size_t i = 0; i < depth.size(); ++i){
-            if(depth[i] > max_depth){
-                max_depth = depth[i];
-                max_depth_idx = i;
-            }
-        }
-        
-        vector<int> path;
-        path.push_back(max_depth_idx);
-        int p = parents[max_depth_idx];
-        int cur_node = max_depth_idx;
-        while(p != -1){
-            cur_node = p;
-            path.insert(path.begin(), p);
-            p = parents[cur_node];
-        }
-        for(size_t i = 0; i < path.size()-1; ++i){
-            int source_idx = path[i];
-            int target_idx = path[i+1];
-            if (source_idx == 0) {
-                extension.push_back(RoadPt(start_point.x,
-                                           start_point.y,
-                                           start_point.head,
-                                           is_oneway));
-            }
-            else{
-                PclPoint& pt = simplified_points->at(source_idx-1);
-                extension.push_back(RoadPt(pt.x,
-                                           pt.y,
-                                           pt.head,
-                                           is_oneway));
-            }
-            
-            if (target_idx == 0) {
-                extension.push_back(RoadPt(start_point.x,
-                                           start_point.y,
-                                           start_point.head,
-                                           is_oneway));
-            }
-            else{
-                PclPoint& pt = simplified_points->at(target_idx-1);
-                extension.push_back(RoadPt(pt.x,
-                                           pt.y,
-                                           pt.head,
-                                           is_oneway));
-            }
-        }
-    }
-    
-    smoothCurve(extension, true);
-   
-    float score = 0.0f;
-    for (size_t i = 0; i < points->size(); ++i) {
-        PclPoint& pt = points->at(i);
-        float min_dist = 1e10;
-        for (int s = 1; s < extension.size(); ++s) {
-            Eigen::Vector2d vec0(pt.x - extension[s-1].x, pt.y - extension[s-1].y);
-            Eigen::Vector2d vec1(pt.x - extension[s].x, pt.y - extension[s].y);
-            Eigen::Vector2d dir(extension[s].x - extension[s-1].x,
-                                extension[s].y - extension[s-1].y);
-            
-            float dir_length = dir.norm();
-            float length0 = vec0.norm();
-            float length1 = vec1.norm();
-            
-            if (dir_length < 0.1f) {
-                if (min_dist > length0) {
-                    min_dist = length0;
-                    continue;
-                }
-            }
-            
-            dir /= dir_length;
-            float dot_value = dir.dot(vec0);
-            
-            if (dot_value < 0.0f) {
-                if (min_dist > length0) {
-                    min_dist = length0;
-                }
-            }
-            else if(dot_value > dir_length) {
-                if (min_dist > length1) {
-                    min_dist = length1;
-                }
-            }
-            else{
-                float dist = sqrt(length0*length0 - dot_value*dot_value);
-                if (min_dist > dist) {
-                    min_dist = dist;
-                }
-            }
-        }
-        
-        score += (min_dist*min_dist);
-    }
-    
-    if(points->size() > 0){
-        score /= points->size();
-    }
-    
-    return score;
-}
+//float growModelFitting(RoadPt& start_point,
+//                       PclPointCloud::Ptr& points,
+//                       PclSearchTree::Ptr& search_tree,
+//                       vector<RoadPt>& extension,
+//                       bool grow_backward){
+//    if (points->size() == 0) {
+//        return 0.0f;
+//    }
+//    
+//    bool is_oneway = start_point.is_oneway;
+//    
+//    // Move point around as skeleton extraction
+//    PclPointCloud::Ptr tmp_points(new PclPointCloud);
+//    PclSearchTree::Ptr tmp_search_tree(new pcl::search::FlannSearch<PclPoint>(false));
+//   
+//    for (size_t i = 0; i < points->size(); ++i) {
+//        tmp_points->push_back(points->at(i));
+//    }
+//
+//    tmp_search_tree->setInputCloud(tmp_points);
+//    
+//    float cum_change;
+//    int MAX_ITER = 30;
+//    float HEADING_THRESHOLD = 15.0f;
+//    int i_iter = 0;
+//    float search_radius = 15.0f;
+//    while (i_iter < MAX_ITER) {
+//        cum_change = 0.0f;
+//        
+//        for (size_t i = 0; i < tmp_points->size(); ++i) {
+//            PclPoint& pt = tmp_points->at(i);
+//            Eigen::Vector3d pt_dir = headingTo3dVector(pt.head);
+//            Eigen::Vector3d pt_perp_dir(-pt_dir[1], pt_dir[0], 0.0f);
+//            
+//            vector<int> k_indices;
+//            vector<float> k_dist_sqrs;
+//            tmp_search_tree->radiusSearch(pt, search_radius, k_indices, k_dist_sqrs);
+//            
+//            float cum_perp_proj = 0.0f;
+//            int   count = 0;
+//            for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
+//                PclPoint& nb_pt = tmp_points->at(*it);
+//                float delta_heading = abs(deltaHeading1MinusHeading2(nb_pt.head, pt.head));
+//                if (!is_oneway && delta_heading > 90.0f) {
+//                    delta_heading = 180.0f - delta_heading;
+//                }
+//                
+//                if (delta_heading < HEADING_THRESHOLD) {
+//                    Eigen::Vector3d vec(nb_pt.x - pt.x, nb_pt.y - pt.y, 0.0f);
+//                    
+//                    cum_perp_proj += pt_dir.cross(vec)[2];
+//                    
+//                    count++;
+//                }
+//            }
+//            
+//            if (count != 0) {
+//                cum_perp_proj /= count;
+//                
+//                cum_change += abs(cum_perp_proj);
+//                
+//                Eigen::Vector3d v0(pt.x, pt.y, 0.0f);
+//                v0 += (cum_perp_proj * pt_perp_dir);
+//                pt.x = v0.x();
+//                pt.y = v0.y();
+//            }
+//        }
+//        
+//        tmp_search_tree->setInputCloud(tmp_points);
+//        
+//        if (cum_change < 1.0f) {
+//            break;
+//        }
+//        
+//        i_iter++;
+//    }
+//    
+//    // Move point around as skeleton extraction
+//    PclPointCloud::Ptr simplified_points(new PclPointCloud);
+//    PclSearchTree::Ptr simplified_search_tree(new pcl::search::FlannSearch<PclPoint>(false));
+//    
+//    vector<int> is_covered(tmp_points->size(), false);
+//    for (size_t i = 0; i < tmp_points->size(); ++i) {
+//        if (is_covered[i]) {
+//            continue;
+//        }
+//        
+//        is_covered[i] = true;
+//        PclPoint& pt = tmp_points->at(i);
+//        simplified_points->push_back(pt);
+//        
+//        vector<int> k_indices;
+//        vector<float> k_dist_sqrs;
+//        
+//        tmp_search_tree->radiusSearch(pt, 5.0f, k_indices, k_dist_sqrs);
+//        for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
+//            if (is_covered[*it]) {
+//                continue;
+//            }
+//            
+//            PclPoint& nearby_pt = tmp_points->at(*it);
+//            float delta_heading = abs(deltaHeading1MinusHeading2(nearby_pt.head, pt.head));
+//            
+//            if (!is_oneway && delta_heading > 90.0f) {
+//                delta_heading = 180.0f - delta_heading;
+//            }
+//            
+//            if (delta_heading < HEADING_THRESHOLD) {
+//                is_covered[*it] = true;
+//            }
+//        }
+//    }
+//    
+//    simplified_search_tree->setInputCloud(simplified_points);
+//    
+//    // Build a undirected graph
+//    typedef adjacency_list<vecS, vecS, undirectedS, property<vertex_distance_t, float>, property < edge_weight_t, float> > graph_t;
+//    typedef typename graph_t::edge_property_type Weight;
+//   
+//    typedef graph_traits<graph_t>::vertex_descriptor vertex_descriptor;
+//    typedef graph_traits<graph_t>::edge_descriptor edge_descriptor;
+//    typedef pair<int, int> E;
+//    vector<float> edge_weights;
+//    vector<E>     edge_list;
+//    
+//    vector<int> k_indices;
+//    vector<float> k_dist_sqrs;
+//    PclPoint pt;
+//    pt.setCoordinate(start_point.x, start_point.y, 0.0f);
+//    pt.head = start_point.head;
+//    
+//    Eigen::Vector2d start_pt_dir = headingTo2dVector(pt.head);
+//    
+//    simplified_search_tree->radiusSearch(pt, 1.2f * search_radius, k_indices, k_dist_sqrs);
+//    
+//    for (size_t i = 0; i != k_indices.size(); ++i) {
+//        PclPoint nb_pt = simplified_points->at(k_indices[i]);
+//        Eigen::Vector2d nb_pt_dir = headingTo2dVector(nb_pt.head);
+//        
+//        float dot_value = nb_pt_dir.dot(start_pt_dir);
+//        if (!is_oneway) {
+//            dot_value = abs(dot_value);
+//        }
+//   
+//        float edge_weight = sqrt(k_dist_sqrs[i]) * (2.0f - dot_value);
+//        
+//        edge_list.push_back(E(0, k_indices[i]+1));
+//        edge_weights.push_back(edge_weight);
+//    }
+//    
+//    for (size_t i = 0; i < simplified_points->size(); ++i) {
+//        PclPoint& this_pt = simplified_points->at(i);
+//        Eigen::Vector2d this_pt_dir = headingTo2dVector(this_pt.head);
+//        vector<int> k_inds;
+//        vector<float> k_dists;
+//        
+//        simplified_search_tree->radiusSearch(this_pt, 1.2f * search_radius, k_inds, k_dists);
+//        
+//        for (size_t s = 0; s != k_inds.size(); ++s) {
+//            if (k_inds[s] == i) {
+//                continue;
+//            }
+//            
+//            PclPoint nb_pt = simplified_points->at(k_inds[s]);
+//            Eigen::Vector2d nb_pt_dir = headingTo2dVector(nb_pt.head);
+//            
+//            float dot_value = nb_pt_dir.dot(this_pt_dir);
+//            if (!is_oneway) {
+//                dot_value = abs(dot_value);
+//            }
+//            
+//            float edge_weight = sqrt(k_dists[s]) * (2.0f - dot_value);
+//            
+//            edge_list.push_back(E(i+1, k_inds[s]+1));
+//            edge_weights.push_back(edge_weight);
+//        }
+//    }
+//    
+//    graph_t G;
+//    
+//    for(size_t i = 0; i < edge_list.size(); ++i){
+//        add_edge(edge_list[i].first, edge_list[i].second, edge_weights[i], G);
+//    }
+//    
+//    vector<edge_descriptor> spanning_tree;
+//    //kruskal_minimum_spanning_tree(G, back_inserter(spanning_tree));;
+//    
+//    vector<vertex_descriptor> p(num_vertices(G));
+//    vector<float> d(num_vertices(G));
+//    dijkstra_shortest_paths(G, 0,
+//                            predecessor_map(boost::make_iterator_property_map(p.begin(), get(boost::vertex_index, G))).
+//                            distance_map(boost::make_iterator_property_map(d.begin(), get(boost::vertex_index, G))));
+//    
+//    property_map<graph_t, edge_weight_t>::type w = get(edge_weight, G);
+//    
+//    extension.clear();
+//    int count = 0;
+//    
+//    // Construct the spanning tree
+//    graph_t MST;
+//    
+//    for (vector<edge_descriptor>::iterator ei = spanning_tree.begin();
+//         ei != spanning_tree.end(); ++ei) {
+//        count ++;
+//        int source_idx = source(*ei, G);
+//        int target_idx = target(*ei, G);
+//        
+//        add_edge(source_idx, target_idx, get(w, *ei),MST);
+//    }
+//    
+//    vector<int> depth(num_vertices(MST), 0);
+//    vector<int> parents(num_vertices(MST), -1);
+//    if (depth.size() > 0) {
+//        dfs_depth_visitor vis(depth, parents);
+//        
+//        depth_first_search(MST, visitor(vis).root_vertex(0));
+//        
+//        int max_depth = -1;
+//        int max_depth_idx = -1;
+//        for(size_t i = 0; i < depth.size(); ++i){
+//            if(depth[i] > max_depth){
+//                max_depth = depth[i];
+//                max_depth_idx = i;
+//            }
+//        }
+//        
+//        vector<int> path;
+//        path.push_back(max_depth_idx);
+//        int p = parents[max_depth_idx];
+//        int cur_node = max_depth_idx;
+//        while(p != -1){
+//            cur_node = p;
+//            path.insert(path.begin(), p);
+//            p = parents[cur_node];
+//        }
+//        for(size_t i = 0; i < path.size()-1; ++i){
+//            int source_idx = path[i];
+//            int target_idx = path[i+1];
+//            if (source_idx == 0) {
+//                extension.push_back(RoadPt(start_point.x,
+//                                           start_point.y,
+//                                           start_point.head,
+//                                           is_oneway));
+//            }
+//            else{
+//                PclPoint& pt = simplified_points->at(source_idx-1);
+//                extension.push_back(RoadPt(pt.x,
+//                                           pt.y,
+//                                           pt.head,
+//                                           is_oneway));
+//            }
+//            
+//            if (target_idx == 0) {
+//                extension.push_back(RoadPt(start_point.x,
+//                                           start_point.y,
+//                                           start_point.head,
+//                                           is_oneway));
+//            }
+//            else{
+//                PclPoint& pt = simplified_points->at(target_idx-1);
+//                extension.push_back(RoadPt(pt.x,
+//                                           pt.y,
+//                                           pt.head,
+//                                           is_oneway));
+//            }
+//        }
+//    }
+//    
+//    smoothCurve(extension, true);
+//   
+//    float score = 0.0f;
+//    for (size_t i = 0; i < points->size(); ++i) {
+//        PclPoint& pt = points->at(i);
+//        float min_dist = 1e10;
+//        for (int s = 1; s < extension.size(); ++s) {
+//            Eigen::Vector2d vec0(pt.x - extension[s-1].x, pt.y - extension[s-1].y);
+//            Eigen::Vector2d vec1(pt.x - extension[s].x, pt.y - extension[s].y);
+//            Eigen::Vector2d dir(extension[s].x - extension[s-1].x,
+//                                extension[s].y - extension[s-1].y);
+//            
+//            float dir_length = dir.norm();
+//            float length0 = vec0.norm();
+//            float length1 = vec1.norm();
+//            
+//            if (dir_length < 0.1f) {
+//                if (min_dist > length0) {
+//                    min_dist = length0;
+//                    continue;
+//                }
+//            }
+//            
+//            dir /= dir_length;
+//            float dot_value = dir.dot(vec0);
+//            
+//            if (dot_value < 0.0f) {
+//                if (min_dist > length0) {
+//                    min_dist = length0;
+//                }
+//            }
+//            else if(dot_value > dir_length) {
+//                if (min_dist > length1) {
+//                    min_dist = length1;
+//                }
+//            }
+//            else{
+//                float dist = sqrt(length0*length0 - dot_value*dot_value);
+//                if (min_dist > dist) {
+//                    min_dist = dist;
+//                }
+//            }
+//        }
+//        
+//        score += (min_dist*min_dist);
+//    }
+//    
+//    if(points->size() > 0){
+//        score /= points->size();
+//    }
+//    
+//    return score;
+//}
 
 /*
 float growModelFitting(RoadPt& start_point,
@@ -1883,11 +2008,644 @@ float growModelFitting(RoadPt& start_point,
 }
  */
 
-float splitModelFitting(RoadPt& start_point,
-                        PclPointCloud::Ptr& points,
-                        PclSearchTree::Ptr& search_tree,
-                        vector<vector<RoadPt> >& branches,
-                        bool grow_backward){
+//float branchFitting(RoadPt& start_point,
+//                    PclPointCloud::Ptr& points,
+//                    PclSearchTree::Ptr& search_tree,
+//                    Trajectories*       trajectories,
+//                    vector<vector<RoadPt> >& branches,
+//                    bool grow_backward){
+//    if (points->size() == 0) {
+//        return 0.0f;
+//    }
+//    
+//    branches.clear();
+//    
+//    bool is_oneway = start_point.is_oneway;
+//    
+//    float search_radius = Parameters::getInstance().searchRadius();
+//    
+//    // Move point around as skeleton extraction
+//    PclPointCloud::Ptr tmp_points(new PclPointCloud);
+//    PclSearchTree::Ptr tmp_search_tree(new pcl::search::FlannSearch<PclPoint>(false));
+//    
+//    // Strip off the points consistent with the first branch
+//    vector<float> tmp_point_scores;
+//    for (size_t i = 0; i < points->size(); ++i) {
+//        tmp_points->push_back(points->at(i));
+//    }
+//    
+//    if(tmp_points->size() == 0){
+//        return 0.0f;
+//    }
+//    
+//    tmp_search_tree->setInputCloud(tmp_points);
+//    
+//    float HEADING_THRESHOLD = 15.0f;
+//    float delta_bin = 2.5f; // in meters
+//    float sigma_s = 5.0f; // in meters
+//    for(int t = 0; t < 3; ++t){
+//        for (size_t i = 0; i < tmp_points->size(); ++i) {
+//            PclPoint& pt = tmp_points->at(i);
+//            RoadPt r_pt(start_point);
+//            r_pt.x = pt.x;
+//            r_pt.y = pt.y;
+//            r_pt.head = pt.head;
+//            adjustRoadCenterAt(r_pt,
+//                               points,
+//                               search_tree,
+//                               search_radius,
+//                               HEADING_THRESHOLD,
+//                               delta_bin,
+//                               sigma_s,
+//                               true);
+//            pt.x = r_pt.x;
+//            pt.y = r_pt.y;
+//        }
+//        
+//        tmp_search_tree->setInputCloud(tmp_points);
+//    }
+//    
+//    PclPointCloud::Ptr simplified_points(new PclPointCloud);
+//    PclSearchTree::Ptr simplified_search_tree(new pcl::search::FlannSearch<PclPoint>(false));
+//    
+//    vector<int> is_covered(tmp_points->size(), false);
+//    for (size_t i = 0; i < tmp_points->size(); ++i) {
+//        if (is_covered[i]) {
+//            continue;
+//        }
+//        
+//        is_covered[i] = true;
+//        PclPoint& pt = tmp_points->at(i);
+//        
+//        int count = 0;
+//        float cum_x = 0.0f;
+//        float cum_y = 0.0f;
+//        
+//        vector<int> k_indices;
+//        vector<float> k_dist_sqrs;
+//        
+//        tmp_search_tree->radiusSearch(pt, 10.0f, k_indices, k_dist_sqrs);
+//        for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
+//            PclPoint& nearby_pt = tmp_points->at(*it);
+//            float delta_heading = abs(deltaHeading1MinusHeading2(nearby_pt.head, pt.head));
+//            
+//            if (!is_oneway && delta_heading > 90.0f) {
+//                delta_heading = 180.0f - delta_heading;
+//            }
+//            
+//            if (delta_heading < HEADING_THRESHOLD) {
+//                is_covered[*it] = true;
+//                cum_x += (nearby_pt.id_sample * nearby_pt.x);
+//                cum_y += (nearby_pt.id_sample * nearby_pt.y);
+//                count += nearby_pt.id_sample;
+//            }
+//        }
+//        
+//        if(count > 0){
+//            cum_x /= count;
+//            cum_y /= count;
+//            pt.x = cum_x;
+//            pt.y = cum_y;
+//        }
+//        
+//        simplified_points->push_back(pt);
+//    }
+//    
+//    simplified_search_tree->setInputCloud(simplified_points);
+//    
+//    // Build a undirected graph
+//    typedef adjacency_list<vecS, vecS, undirectedS, property<vertex_distance_t, float>, property < edge_weight_t, float> > graph_t;
+//    typedef typename graph_t::edge_property_type Weight;
+//    
+//    typedef graph_traits<graph_t>::vertex_descriptor vertex_descriptor;
+//    typedef graph_traits<graph_t>::edge_descriptor edge_descriptor;
+//    typedef graph_traits<graph_t>::vertex_iterator vertex_iter;
+//    typedef graph_traits<graph_t>::edge_iterator edge_iter;
+//    typedef pair<int, int> E;
+//    vector<float> edge_weights;
+//    vector<E>     edge_list;
+//    
+//    PclPoint pt;
+//    pt.setCoordinate(start_point.x, start_point.y, 0.0f);
+//    pt.head = start_point.head;
+//    
+//    float ratio = 2.0f;
+//    
+//    // Add edges from start_point to simplified_points
+//    vector<int> k_indices;
+//    vector<float> k_dist_sqrs;
+//    simplified_search_tree->radiusSearch(pt, ceil(ratio * search_radius), k_indices, k_dist_sqrs);
+//    for (size_t i = 0; i != k_indices.size(); ++i) {
+//        PclPoint nb_pt = simplified_points->at(k_indices[i]);
+//        Eigen::Vector2d nb_pt_dir = headingTo2dVector(nb_pt.head);
+//        
+//        Eigen::Vector2d vec(nb_pt.x - start_point.x,
+//                            nb_pt.y - start_point.y);
+//        
+//        float vec_length = vec.norm();
+//        if(vec_length > 1e-3){
+//            vec /= vec_length;
+//        }
+//        else{
+//            vec *= 0.0f;
+//        }
+//        
+//        float dot_value = vec.dot(nb_pt_dir);
+//        
+//        if (!is_oneway) {
+//            dot_value = abs(dot_value);
+//        }
+//        
+//        float edge_weight = sqrt(k_dist_sqrs[i]) * (2.0f - 1.0f * dot_value);
+//        
+//        edge_list.push_back(E(0, k_indices[i]+1));
+//        edge_weights.push_back(edge_weight);
+//    }
+//    
+//    // Add edges among simplified_points
+//    for (size_t i = 0; i < simplified_points->size(); ++i) {
+//        PclPoint& this_pt = simplified_points->at(i);
+//        Eigen::Vector2d this_pt_dir = headingTo2dVector(this_pt.head);
+//        
+//        vector<int> k_inds;
+//        vector<float> k_dists;
+//        simplified_search_tree->radiusSearch(this_pt,
+//                                             ceil(ratio * search_radius),
+//                                             k_inds,
+//                                             k_dists);
+//        
+//        for (size_t s = 0; s < k_inds.size(); ++s) {
+//            if (k_inds[s] <= i) {
+//                continue;
+//            }
+//            
+//            PclPoint nb_pt = simplified_points->at(k_inds[s]);
+//            Eigen::Vector2d nb_pt_dir = headingTo2dVector(nb_pt.head);
+//           
+//            Eigen::Vector2d vec(nb_pt.x - this_pt.x,
+//                                nb_pt.y - this_pt.y);
+//            
+//            float vec_length = vec.norm();
+//            if(vec_length > 1e-3){
+//                vec /= vec_length;
+//            }
+//            else{
+//                vec *= 0.0f;
+//            }
+//            
+//            float dot_value1 = vec.dot(nb_pt_dir);
+//            float dot_value2 = -1.0f * vec.dot(this_pt_dir);
+//            
+//            if (!is_oneway) {
+//                dot_value1 = abs(dot_value1);
+//                dot_value2 = abs(dot_value2);
+//            }
+//            
+//            float dot_value = (dot_value1 > dot_value2) ? dot_value1 : dot_value2;
+//            
+//            float edge_weight = sqrt(k_dists[s]) * (2.0f - dot_value); //- dot_value1 - dot_value2);
+//            
+//            edge_list.push_back(E(i+1, k_inds[s]+1));
+//            edge_weights.push_back(edge_weight);
+//        }
+//    }
+//    
+//    graph_t G;
+//    
+//    for(size_t i = 0; i < edge_list.size(); ++i){
+//        add_edge(edge_list[i].first, edge_list[i].second, edge_weights[i], G);
+//    }
+//    
+//    // Compute connected component
+//    vector<int> component(num_vertices(G));
+//    connected_components(G, &component[0]);
+//    
+//    vector<edge_descriptor> spanning_tree;
+//    kruskal_minimum_spanning_tree(G, back_inserter(spanning_tree));;
+//    
+//    property_map<graph_t, edge_weight_t>::type w = get(edge_weight, G);
+//    
+//    // Construct the spanning tree
+//    graph_t MST;
+//    for (vector<edge_descriptor>::iterator ei = spanning_tree.begin(); ei != spanning_tree.end(); ++ei) {
+//        int source_idx = source(*ei, G);
+//        int target_idx = target(*ei, G);
+//        if (component[source_idx] != component[0]) {
+//            continue;
+//        }
+//        
+//        add_edge(source_idx, target_idx, get(w, *ei), MST);
+//        
+////        if (source_idx == 0) {
+////            RoadPt r_pt(start_point);
+////            branch.push_back(r_pt);
+////        }
+////        else{
+////            PclPoint pt = simplified_points->at(source_idx - 1);
+////            RoadPt r_pt;
+////            r_pt.x = pt.x;
+////            r_pt.y = pt.y;
+////            r_pt.head = pt.head;
+////            branch.push_back(r_pt);
+////        }
+////        
+////        if (target_idx == 0) {
+////            RoadPt r_pt(start_point);
+////            branch.push_back(start_point);
+////        }
+////        else{
+////            PclPoint pt = simplified_points->at(target_idx - 1);
+////            RoadPt r_pt;
+////            r_pt.x = pt.x;
+////            r_pt.y = pt.y;
+////            r_pt.head = pt.head;
+////            branch.push_back(r_pt);
+////        }
+//    }
+//    
+//    int n_vertices = num_vertices(MST);
+//    vector<int> depth(n_vertices, 0);
+//    vector<int> parents(n_vertices, -1);
+//    
+//    float MIN_BRANCH_LENGTH = 30.0f;
+//    
+//    vector<vector<RoadPt> > raw_branches;
+//    if (n_vertices > 0) {
+//        dfs_depth_visitor vis(depth, parents);
+//        
+//        depth_first_search(MST, visitor(vis).root_vertex(0));
+//        
+//        int max_depth = -1;
+//        int max_depth_idx = -1;
+//        for(size_t i = 0; i < depth.size(); ++i){
+//            if(depth[i] > max_depth){
+//                max_depth = depth[i];
+//                max_depth_idx = i;
+//            }
+//        }
+//        
+//        vector<vector<int> > paths;
+//        vector<int> first_path;
+//        vector<bool> marked(n_vertices, false);
+//        first_path.push_back(max_depth_idx);
+//        marked[max_depth_idx] = true;
+//        int p = parents[max_depth_idx];
+//        int cur_node = max_depth_idx;
+//        while(p != -1){
+//            cur_node = p;
+//            first_path.insert(first_path.begin(), p);
+//            marked[cur_node] = true;
+//            p = parents[cur_node];
+//        }
+//        paths.push_back(first_path);
+//        
+//        int n_cur_path = 1;
+//        while (true) {
+//            float cum_max_branch_length = 0.0f;
+//            
+//            int cur_max_idx = -1;
+//            for (int s = 0; s < n_vertices; ++s) {
+//                if (marked[s]) {
+//                    continue;
+//                }
+//                
+//                // Find path
+//                int cur_node = s;
+//                int p = parents[s];
+//                int cur_length = 0;
+//                float cur_cum_length = 0.0f;
+//                while(true){
+//                    if(p == -1){
+//                        break;
+//                    }
+//                    
+//                    cur_length++;
+//                   
+//                    float start_x;
+//                    float start_y;
+//                    if (cur_node == 0) {
+//                        start_x = start_point.x;
+//                        start_y = start_point.y;
+//                    }
+//                    else{
+//                        PclPoint& pt = simplified_points->at(cur_node-1);
+//                        start_x = pt.x;
+//                        start_y = pt.y;
+//                    }
+//                    
+//                    float end_x;
+//                    float end_y;
+//                    
+//                    if (p == 0) {
+//                        end_x = start_point.x;
+//                        end_y = start_point.y;
+//                    }
+//                    else{
+//                        PclPoint& pt = simplified_points->at(p-1);
+//                        end_x = pt.x;
+//                        end_y = pt.y;
+//                    }
+//                    
+//                    float delta_x = end_x - start_x;
+//                    float delta_y = end_y - start_y;
+//                    cur_cum_length += sqrt(delta_x*delta_x + delta_y*delta_y);
+//                    
+//                    if (marked[p]) {
+//                        break;
+//                    }
+//                    
+//                    cur_node = p;
+//                    p = parents[p];
+//                }
+//                
+//                if (cum_max_branch_length < cur_cum_length) {
+//                    cum_max_branch_length = cur_cum_length;
+//                    cur_max_idx = s;
+//                }
+//            }
+//            
+//            if (cum_max_branch_length < MIN_BRANCH_LENGTH) {
+//                break;
+//            }
+//            
+//            // Trace path
+//            vector<int> this_path;
+//            this_path.push_back(cur_max_idx);
+//            marked[cur_max_idx] = true;
+//            int p = parents[cur_max_idx];
+//            while(p != -1){
+//                this_path.insert(this_path.begin(), p);
+//                
+//                if (marked[p]) {
+//                    break;
+//                }
+//                
+//                marked[p] = true;
+//                p = parents[p];
+//            }
+//            paths.push_back(this_path);
+//            n_cur_path++;
+//        
+//            if(n_cur_path > 3){
+//                break;
+//            }
+//        }
+//        
+//        for(size_t s = 0; s < paths.size(); ++s){
+//            vector<int>& this_path = paths[s];
+//            
+//            vector<RoadPt> branch;
+//            for(int k = 0; k < this_path.size() - 1; ++k){
+//                int source_idx = this_path[k];
+//                int target_idx = this_path[k+1];
+//                if (source_idx == 0) {
+//                    RoadPt r_pt(start_point);
+//                    branch.push_back(r_pt);
+//                }
+//                else{
+//                    PclPoint pt = simplified_points->at(source_idx - 1);
+//                    RoadPt r_pt;
+//                    r_pt.x = pt.x;
+//                    r_pt.y = pt.y;
+//                    r_pt.head = pt.head;
+//                    branch.push_back(r_pt);
+//                }
+//                
+//                if (target_idx == 0) {
+//                    RoadPt r_pt(start_point);
+//                    branch.push_back(start_point);
+//                }
+//                else{
+//                    PclPoint pt = simplified_points->at(target_idx - 1);
+//                    RoadPt r_pt;
+//                    r_pt.x = pt.x;
+//                    r_pt.y = pt.y;
+//                    r_pt.head = pt.head;
+//                    branch.push_back(r_pt);
+//                }
+//            }
+//            raw_branches.push_back(branch);
+////            branches.push_back(branch);
+//        }
+//    }
+//    
+//    if (raw_branches.size() == 0) {
+//        return false;
+//    }
+//    
+//    vector<bool> branch_valid(raw_branches.size(), false);
+//    for (size_t s = 0; s < raw_branches.size(); ++s) {
+//        
+//    }
+//    
+//    float junc_x = 0.0f;
+//    float junc_y = 0.0f;
+//    int n_junc = 0;
+//    if (raw_branches.size() > 2) {
+//        junc_x = raw_branches[1][0].x;
+//        junc_y = raw_branches[1][0].y;
+//        n_junc = 1;
+//        for (int s = 2; s < raw_branches.size(); ++s) {
+//            if (roadPtDistance(raw_branches[1][0], raw_branches[s][0]) < 10.0f) {
+//                junc_x += raw_branches[s][0].x;
+//                junc_y += raw_branches[s][0].y;
+//                ++n_junc;
+//            }
+//        }
+//        junc_x /= n_junc;
+//        junc_y /= n_junc;
+//    }
+//    
+//    // update raw_branches
+//    vector<vector<RoadPt> > updated_branches;
+//    if (n_junc != 0) {
+//        // move junction location
+//        
+//        // update each branch geometry
+//    }
+//    else{
+//        // update the main branch geometry
+//    }
+//    
+//    
+//    float delta_growing_length = Parameters::getInstance().deltaGrowingLength();
+//    float delta_heading_bin = 5.0f; // in degrees
+//    float max_delta_heading_threshold = 45.0f;
+//    if (raw_branches.size() > 1) {
+//        RoadPt junc_loc(raw_branches[1][0]);
+//        if(roadPtDistance(junc_loc, start_point) > 1.5f * delta_growing_length){
+//            vector<RoadPt>& first_raw_branch = raw_branches[0];
+//            // Resample first_raw_branch point heading
+//            PclPoint pt;
+//            for (size_t s = 0; s < first_raw_branch.size(); ++s) {
+//                RoadPt& r_pt = first_raw_branch[s];
+//                adjustRoadPtHeading(r_pt,
+//                                    points,
+//                                    search_tree,
+//                                    search_radius,
+//                                    max_delta_heading_threshold,
+//                                    delta_heading_bin,
+//                                    true);
+//            }
+//            
+//            vector<RoadPt> branch;
+//            float cum_length = 0.0f;
+//            branch.push_back(first_raw_branch[0]);
+//            for (int s = 1; s < first_raw_branch.size(); ++s) {
+//                cum_length += roadPtDistance(first_raw_branch[s], first_raw_branch[s-1]);
+//                if (cum_length > delta_growing_length) {
+//                    break;
+//                }
+//                
+//                branch.push_back(first_raw_branch[s]);
+//            }
+//            
+//            smoothCurve(branch);
+//            
+//            branches.push_back(branch);
+//        }
+//        else{
+//            // Refit branch model
+//            if (raw_branches.size() == 2) {
+//                // This may be a Y-split
+//            }
+//            else{
+//                
+//            }
+//            
+//            for (size_t s = 0; s < raw_branches.size(); ++s) {
+//                branches.push_back(raw_branches[s]);
+//            }
+//        }
+//    }
+//    else{
+//        vector<RoadPt> branch;
+//        vector<RoadPt>& first_raw_branch = raw_branches[0];
+//        float cum_length = 0.0f;
+//        branch.push_back(first_raw_branch[0]);
+//        for (int s = 1; s < first_raw_branch.size(); ++s) {
+//            cum_length += roadPtDistance(first_raw_branch[s], first_raw_branch[s-1]);
+//            if (cum_length > delta_growing_length) {
+//                break;
+//            }
+//            
+//            branch.push_back(first_raw_branch[s]);
+//        }
+//        
+//        // Resample point heading
+//        for (size_t s = 0; s < first_raw_branch.size(); ++s) {
+//            RoadPt& r_pt = first_raw_branch[s];
+//            
+//            adjustRoadPtHeading(r_pt,
+//                                points,
+//                                search_tree,
+//                                search_radius,
+//                                max_delta_heading_threshold,
+//                                delta_heading_bin,
+//                                true);
+//        }
+//        
+//        smoothCurve(branch);
+//        
+//        branches.push_back(branch);
+//    }
+//    
+//    /*
+//    vector<RoadPt> simp_points;
+//    for(size_t i = 0; i < simplified_points->size(); ++i){
+//        PclPoint& pt = simplified_points->at(i);
+//        RoadPt r_pt(start_point);
+//        r_pt.x = pt.x;
+//        r_pt.y = pt.y;
+//        r_pt.head = pt.head;
+//        simp_points.push_back(r_pt);
+//    }
+//    
+//    branches.push_back(simp_points);
+//    vector<RoadPt> simp_points_dir;
+//    for(size_t i = 0; i < simplified_points->size(); ++i){
+//        PclPoint& pt = simplified_points->at(i);
+//        RoadPt r_pt(start_point);
+//        r_pt.x = pt.x;
+//        r_pt.y = pt.y;
+//        r_pt.head = pt.head;
+//        simp_points_dir.push_back(r_pt);
+//        
+//        Eigen::Vector2d dir = headingTo2dVector(pt.head);
+//       
+//        RoadPt r_pt1(start_point);
+//        r_pt1.x = pt.x + 10.0f * dir[0];
+//        r_pt1.y = pt.y + 10.0f * dir[1];
+//        r_pt1.head = pt.head;
+//        simp_points_dir.push_back(r_pt1);
+//    }
+//    
+//    branches.push_back(simp_points_dir);
+//     */
+//    
+//    return 0.0f;
+//}
+
+bool tmpComparePairs(const pair<int, float>& v1, const pair<int, float>& v2){
+    return v1.second < v2.second;
+}
+
+bool branchPrediction(RoadPt&             start_point,
+                      set<int>&           candidate_set,
+                      Trajectories*       trajectories,
+                      RoadPt&             junction_loc,
+                      vector<vector<RoadPt> >&     branches,
+                      bool                grow_backward){
+    branches.clear();
+    // Initialize point cloud
+    // Initialize point cloud
+    PclPointCloud::Ptr points(new PclPointCloud);
+    PclSearchTree::Ptr search_tree(new pcl::search::FlannSearch<PclPoint>(false));
+    
+    // Add points to point cloud
+    map<int, int> pt_idx_mapping;
+    for (set<int>::iterator it = candidate_set.begin(); it != candidate_set.end(); ++it) {
+        PclPoint& pt = trajectories->data()->at(*it);
+        pt_idx_mapping[*it] = points->size();
+        points->push_back(pt);
+    }
+    
+    if(points->size() == 0){
+        return false;
+    }
+    
+    search_tree->setInputCloud(points);
+    
+    bool is_oneway = start_point.is_oneway;
+    if (is_oneway) {
+        branchFitting(start_point,
+                      points,
+                      search_tree,
+                      trajectories,
+                      branches);
+    }
+    else{
+        branchFitting(start_point,
+                      points,
+                      search_tree,
+                      trajectories,
+                      branches);
+    }
+    
+    if(branches.size() > 1){
+        return true;
+    }
+    else{
+        return false;
+    }
+}
+
+float branchFitting(RoadPt& start_point,
+                    PclPointCloud::Ptr& points,
+                    PclSearchTree::Ptr& search_tree,
+                    Trajectories*       trajectories,
+                    vector<vector<RoadPt> >& branches,
+                    bool grow_backward){
     if (points->size() == 0) {
         return 0.0f;
     }
@@ -1896,223 +2654,62 @@ float splitModelFitting(RoadPt& start_point,
     
     bool is_oneway = start_point.is_oneway;
     
-    float search_radius = 25.0f;
+    PclPointCloud::Ptr simplified_points(new PclPointCloud);
+    PclSearchTree::Ptr simplified_search_tree(new pcl::search::FlannSearch<PclPoint>(false));
+    float search_radius = Parameters::getInstance().searchRadius();
     
-    float HEADING_THRESHOLD = 10.0f;
-    
-    float r0 = 10.0f;
-    float delta_r = 5.0f;
-    int n_r = 7;
-    
-    float r = r0;
-    vector<float> point_scores(points->size(), 0.0f);
-    float sigma_max = 0.8f;
-    for(int i_r = 0; i_r < n_r; ++i_r){
-        r = r0 + delta_r * i_r;
-        for (size_t i = 0; i < points->size(); ++i) {
-            PclPoint& pt = points->at(i);
-            Eigen::Vector3d pt_dir = headingTo3dVector(pt.head);
-            
-            vector<int> k_indices;
-            vector<float> k_dist_sqrs;
-            search_tree->radiusSearch(pt, r, k_indices, k_dist_sqrs);
-            float cum_perp_proj = 0.0f;
-            int count = 0;
-            
-            for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
-                PclPoint& nb_pt = points->at(*it);
-                
-                float delta_heading = abs(deltaHeading1MinusHeading2(nb_pt.head, pt.head));
-                if (!is_oneway && delta_heading > 90.0f) {
-                    delta_heading = 180.0f - delta_heading;
-                }
-                
-                if (delta_heading < HEADING_THRESHOLD) {
-                    Eigen::Vector3d vec(nb_pt.x - pt.x, nb_pt.y - pt.y, 0.0f);
-                    float perp_dist = pt_dir.cross(vec)[2];
-                    cum_perp_proj += (nb_pt.id_sample * perp_dist);
-                    
-                    count += nb_pt.id_sample;
-                }
-            }
-            
-            if (count != 0) {
-                cum_perp_proj /= count;
-            }
-            
-            float score = 1.0f - 2.0f * abs(cum_perp_proj) / r;
-            
-            if(score < 0){
-                score = 0.0f;
-            }
-            
-            if (score > sigma_max) {
-                point_scores[i] += 1.0f;
-            }
-        }
-    }
-   
-    float sigma_min = 0.5f;
-    
-    // Move point around as skeleton extraction
-    PclPointCloud::Ptr tmp_points(new PclPointCloud);
-    PclSearchTree::Ptr tmp_search_tree(new pcl::search::FlannSearch<PclPoint>(false));
-    
-    // Strip off the points consistent with the first branch
-    vector<float> tmp_point_scores;
-    for (size_t i = 0; i < points->size(); ++i) {
-        float pt_score = point_scores[i] / n_r;
-        if(pt_score < sigma_min){
-            continue;
-        }
-        
-        tmp_points->push_back(points->at(i));
-        tmp_point_scores.push_back(pt_score);
-    }
-    
-    if(tmp_points->size() == 0){
+    float HEADING_THRESHOLD = 15.0f;
+    float delta_perp_bin = 2.5f; // in meters
+    float sigma_perp_s = 5.0f; // in meters
+    float delta_head_bin = 5.0f;
+    float sigma_head_s = 5.0f;
+    int   min_n = 1;
+    sampleRoadSkeletonPoints(search_radius,
+                             HEADING_THRESHOLD,
+                             delta_perp_bin,
+                             sigma_perp_s,
+                             delta_head_bin,
+                             sigma_head_s,
+                             min_n,
+                             is_oneway,
+                             points,
+                             search_tree,
+                             simplified_points,
+                             simplified_search_tree);
+    if (simplified_points->size() == 0) {
         return 0.0f;
     }
     
-    tmp_search_tree->setInputCloud(tmp_points);
-    
-    float delta_bin = 2.5f; // in meters
-    float sigma_s = 5.0f; // in meters
-    int N_BINS = ceil(2.0f * search_radius / delta_bin);
-    delta_bin = 2.0f * search_radius / N_BINS;
-    int half_window = 2;
-    
-    for(int k = 0; k < 1; ++k){
-        vector<float> delta_xs;
-        vector<float> delta_ys;
-        for (size_t i = 0; i < tmp_points->size(); ++i) {
-            vector<float> votes(N_BINS, 0.0f);
-            PclPoint& pt = tmp_points->at(i);
-            
-            Eigen::Vector3d pt_dir = headingTo3dVector(pt.head);
-            Eigen::Vector3d pt_perp_dir(-pt_dir[1], pt_dir[0], 0.0f);
-            
-            vector<int> k_indices;
-            vector<float> k_dist_sqrs;
-            
-            search_tree->radiusSearch(pt, search_radius, k_indices, k_dist_sqrs);
-            
-            for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
-                PclPoint& nb_pt = points->at(*it);
-                
-                float delta_heading = abs(deltaHeading1MinusHeading2(nb_pt.head, pt.head));
-                
-                if (!is_oneway && delta_heading > 90.0f) {
-                    delta_heading = 180.0f - delta_heading;
-                }
-                
-                if (delta_heading < HEADING_THRESHOLD) {
-                    Eigen::Vector3d vec(nb_pt.x-pt.x,
-                                        nb_pt.y-pt.y,
-                                        0.0f);
-                    
-                    float perp_proj = pt_dir.cross(vec)[2];
-                    int bin_idx = floor((perp_proj + search_radius) / delta_bin);
-                    if (bin_idx < 0 || bin_idx >= N_BINS) {
-                        continue;
-                    }
-                    
-                    // Vote
-                    for (int s = bin_idx - half_window; s <= bin_idx + half_window; ++s) {
-                        if(s < 0 || s >= N_BINS){
-                            continue;
-                        }
-                        
-                        float delta_bin_center = abs(s - bin_idx) * delta_bin;
-                        votes[s] += nb_pt.id_sample * exp(-1.0f * delta_bin_center * delta_bin_center / 2.0f / sigma_s / sigma_s);
-                    }
-                }
-            }
-            int max_idx = -1;
-            findMaxElement(votes, max_idx);
-            if(max_idx != -1){
-                float avg_perp_dist = (max_idx + 0.5f) * delta_bin - search_radius;
-                Eigen::Vector2d perp_dir_2d(pt_perp_dir.x(), pt_perp_dir.y());
-                Eigen::Vector2d loc = avg_perp_dist * perp_dir_2d;
-                delta_xs.push_back(loc[0]);
-                delta_ys.push_back(loc[1]);
-            }
-        }
-        
-        for(size_t i = 0; i < tmp_points->size(); ++i){
-            PclPoint& pt = tmp_points->at(i);
-            float new_x = pt.x + delta_xs[i];
-            float new_y = pt.y + delta_ys[i];
-            pt.setCoordinate(new_x, new_y, 0.0f);
-        }
-        
-        tmp_search_tree->setInputCloud(tmp_points);
+    vector<RoadPt> simp_points;
+    for(size_t i = 0; i < simplified_points->size(); ++i){
+        PclPoint& pt = simplified_points->at(i);
+        RoadPt r_pt(start_point);
+        r_pt.x = pt.x;
+        r_pt.y = pt.y;
+        r_pt.head = pt.head;
+        simp_points.push_back(r_pt);
     }
     
-    // Move point around as skeleton extraction
-    PclPointCloud::Ptr simplified_points(new PclPointCloud);
-    PclSearchTree::Ptr simplified_search_tree(new pcl::search::FlannSearch<PclPoint>(false));
-    
-    vector<int> is_covered(tmp_points->size(), false);
-    vector<float> simplified_point_scores;
-    for (size_t i = 0; i < tmp_points->size(); ++i) {
-        if (is_covered[i]) {
-            continue;
-        }
+    branches.push_back(simp_points);
+    vector<RoadPt> simp_points_dir;
+    for(size_t i = 0; i < simplified_points->size(); ++i){
+        PclPoint& pt = simplified_points->at(i);
+        RoadPt r_pt(start_point);
+        r_pt.x = pt.x;
+        r_pt.y = pt.y;
+        r_pt.head = pt.head;
+        simp_points_dir.push_back(r_pt);
         
-        is_covered[i] = true;
-        PclPoint& pt = tmp_points->at(i);
+        Eigen::Vector2d dir = headingTo2dVector(pt.head);
         
-        int count = 0;
-        float cum_x = 0.0f;
-        float cum_y = 0.0f;
-        
-        vector<int> k_indices;
-        vector<float> k_dist_sqrs;
-        
-        tmp_search_tree->radiusSearch(pt, 10.0f, k_indices, k_dist_sqrs);
-        for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
-            PclPoint& nearby_pt = tmp_points->at(*it);
-            float delta_heading = abs(deltaHeading1MinusHeading2(nearby_pt.head, pt.head));
-            
-            if (!is_oneway && delta_heading > 90.0f) {
-                delta_heading = 180.0f - delta_heading;
-            }
-            
-            if (delta_heading < HEADING_THRESHOLD) {
-                is_covered[*it] = true;
-                cum_x += (nearby_pt.id_sample * nearby_pt.x);
-                cum_y += (nearby_pt.id_sample * nearby_pt.y);
-                count += nearby_pt.id_sample;
-            }
-        }
-        
-        if(count > 0){
-            cum_x /= count;
-            cum_y /= count;
-            pt.x = cum_x;
-            pt.y = cum_y;
-        }
-        
-        simplified_points->push_back(pt);
-        simplified_point_scores.push_back(tmp_point_scores[i]);
+        RoadPt r_pt1(start_point);
+        r_pt1.x = pt.x + 10.0f * dir[0];
+        r_pt1.y = pt.y + 10.0f * dir[1];
+        r_pt1.head = pt.head;
+        simp_points_dir.push_back(r_pt1);
     }
     
-    simplified_search_tree->setInputCloud(simplified_points);
-    
-    // Visualize simplified_points and its scores
-//    vector<RoadPt> point_with_scores;
-//    for (size_t i = 0; i < simplified_points->size(); ++i) {
-//        PclPoint& pt = simplified_points->at(i);
-//        RoadPt r_pt(start_point);
-//        r_pt.x = pt.x;
-//        r_pt.y = pt.y;
-//        r_pt.head = floor(simplified_point_scores[i]* 100.0f);
-//        point_with_scores.push_back(r_pt);
-//    }
-//    
-//    branches.push_back(point_with_scores);
-//    return 0.0f;
+    branches.push_back(simp_points_dir);
     
     // Build a undirected graph
     typedef adjacency_list<vecS, vecS, undirectedS, property<vertex_distance_t, float>, property < edge_weight_t, float> > graph_t;
@@ -2126,18 +2723,17 @@ float splitModelFitting(RoadPt& start_point,
     vector<float> edge_weights;
     vector<E>     edge_list;
     
-    vector<int> k_indices;
-    vector<float> k_dist_sqrs;
     PclPoint pt;
     pt.setCoordinate(start_point.x, start_point.y, 0.0f);
     pt.head = start_point.head;
     
-    Eigen::Vector2d start_pt_dir = headingTo2dVector(pt.head);
+    float ratio = 1.0f;
     
-    float ratio = 2.0f;
-    
+    // Add edges from start_point to simplified_points
+    vector<int> k_indices;
+    vector<float> k_dist_sqrs;
     simplified_search_tree->radiusSearch(pt, ceil(ratio * search_radius), k_indices, k_dist_sqrs);
-    
+    float high_angle_penalty = 3.0f;
     for (size_t i = 0; i != k_indices.size(); ++i) {
         PclPoint nb_pt = simplified_points->at(k_indices[i]);
         Eigen::Vector2d nb_pt_dir = headingTo2dVector(nb_pt.head);
@@ -2145,58 +2741,83 @@ float splitModelFitting(RoadPt& start_point,
         Eigen::Vector2d vec(nb_pt.x - start_point.x,
                             nb_pt.y - start_point.y);
         
-        float dot_value = nb_pt_dir.dot(start_pt_dir);
-        
-        vec.normalize();
-        float dot_value1 = start_pt_dir.dot(vec);
-        float dot_value2 = nb_pt_dir.dot(vec);
-        
-        if (!is_oneway) {
-            dot_value = abs(dot_value);
-            dot_value1 = abs(dot_value1);
-            dot_value2 = abs(dot_value2);
+        float vec_length = vec.norm();
+        if(vec_length > 1e-3){
+            vec /= vec_length;
+        }
+        else{
+            vec *= 0.0f;
         }
         
-        float edge_weight = sqrt(k_dist_sqrs[i]) * (4.0f - dot_value - dot_value1 - dot_value2);
+        float dot_value = vec.dot(nb_pt_dir);
         
-        edge_list.push_back(E(0, k_indices[i]+1));
-        edge_weights.push_back(edge_weight);
+        if (is_oneway) {
+            if (dot_value > -0.1f) {
+                float edge_weight = sqrt(k_dist_sqrs[i]) * (1.0f + high_angle_penalty * (1.0f - dot_value));
+                edge_list.push_back(E(0, k_indices[i]+1));
+                edge_weights.push_back(edge_weight);
+            }
+        }
+        else{
+            dot_value = abs(dot_value);
+            float edge_weight = sqrt(k_dist_sqrs[i]) * (1.0f + high_angle_penalty * (1.0f - dot_value));
+            
+            edge_list.push_back(E(0, k_indices[i]+1));
+            edge_weights.push_back(edge_weight);
+        }
     }
     
+    // Add edges among simplified_points
     for (size_t i = 0; i < simplified_points->size(); ++i) {
         PclPoint& this_pt = simplified_points->at(i);
         Eigen::Vector2d this_pt_dir = headingTo2dVector(this_pt.head);
+        
         vector<int> k_inds;
         vector<float> k_dists;
+        simplified_search_tree->radiusSearch(this_pt,
+                                             ceil(ratio * search_radius),
+                                             k_inds,
+                                             k_dists);
         
-        simplified_search_tree->radiusSearch(this_pt, ceil(ratio * search_radius), k_inds, k_dists);
-        
-        for (size_t s = 0; s != k_inds.size(); ++s) {
-            if (k_inds[s] == i) {
+        for (size_t s = 0; s < k_inds.size(); ++s) {
+            if (k_inds[s] <= i) {
                 continue;
             }
             
             PclPoint nb_pt = simplified_points->at(k_inds[s]);
             Eigen::Vector2d nb_pt_dir = headingTo2dVector(nb_pt.head);
-           
+            
             Eigen::Vector2d vec(nb_pt.x - this_pt.x,
                                 nb_pt.y - this_pt.y);
-            vec.normalize();
             
-            float dot_value = nb_pt_dir.dot(this_pt_dir);
-            float dot_value1 = this_pt_dir.dot(vec);
-            float dot_value2 = nb_pt_dir.dot(vec);
-            
-            if (!is_oneway) {
-                dot_value = abs(dot_value);
-                dot_value1 = abs(dot_value1);
-                dot_value2 = abs(dot_value2);
+            float vec_length = vec.norm();
+            if(vec_length > 1e-3){
+                vec /= vec_length;
+            }
+            else{
+                vec *= 0.0f;
             }
             
-            float edge_weight = sqrt(k_dists[s]) * (4.0f - dot_value - dot_value1 - dot_value2);
+            float dot_value1 = vec.dot(nb_pt_dir);
+            float dot_value2 = vec.dot(this_pt_dir);
             
-            edge_list.push_back(E(i+1, k_inds[s]+1));
-            edge_weights.push_back(edge_weight);
+            if (is_oneway) {
+                float edge_weight1 = sqrt(k_dists[s]) * (1.0f + high_angle_penalty * (2.0f - dot_value1 - dot_value2));
+                float edge_weight2 = sqrt(k_dists[s]) * (1.0f + high_angle_penalty * (2.0f + dot_value1 + dot_value2));
+                
+                float edge_weight = (edge_weight1 < edge_weight2) ? edge_weight1 : edge_weight2;
+                edge_list.push_back(E(i+1, k_inds[s]+1));
+                edge_weights.push_back(edge_weight);
+            }
+            else{
+                dot_value1 = abs(dot_value1);
+                dot_value2 = abs(dot_value2);
+                
+                float edge_weight = sqrt(k_dists[s]) * (1.0f + high_angle_penalty * (2.0f - dot_value1 - dot_value2));
+                
+                edge_list.push_back(E(i+1, k_inds[s]+1));
+                edge_weights.push_back(edge_weight);
+            }
         }
     }
     
@@ -2206,50 +2827,57 @@ float splitModelFitting(RoadPt& start_point,
         add_edge(edge_list[i].first, edge_list[i].second, edge_weights[i], G);
     }
     
+    // Compute connected component
+    vector<int> component(num_vertices(G));
+    connected_components(G, &component[0]);
+    
     vector<edge_descriptor> spanning_tree;
     kruskal_minimum_spanning_tree(G, back_inserter(spanning_tree));;
-    
     property_map<graph_t, edge_weight_t>::type w = get(edge_weight, G);
-    
-    int count = 0;
     
     // Construct the spanning tree
     graph_t MST;
-    
-//    vector<RoadPt> branch;
+    vector<RoadPt> branch;
     for (vector<edge_descriptor>::iterator ei = spanning_tree.begin(); ei != spanning_tree.end(); ++ei) {
-        count ++;
         int source_idx = source(*ei, G);
         int target_idx = target(*ei, G);
         
-        add_edge(source_idx, target_idx, get(w, *ei),MST);
+        if (component[source_idx] != component[0]) {
+            continue;
+        }
         
-//        if (source_idx == 0) {
-//            RoadPt r_pt(start_point);
-//            branch.push_back(r_pt);
-//        }
-//        else{
-//            PclPoint pt = simplified_points->at(source_idx - 1);
-//            RoadPt r_pt;
-//            r_pt.x = pt.x;
-//            r_pt.y = pt.y;
-//            r_pt.head = pt.head;
-//            branch.push_back(r_pt);
-//        }
-//        
-//        if (target_idx == 0) {
-//            RoadPt r_pt(start_point);
-//            branch.push_back(start_point);
-//        }
-//        else{
-//            PclPoint pt = simplified_points->at(target_idx - 1);
-//            RoadPt r_pt;
-//            r_pt.x = pt.x;
-//            r_pt.y = pt.y;
-//            r_pt.head = pt.head;
-//            branch.push_back(r_pt);
-//        }
+        add_edge(source_idx, target_idx, get(w, *ei), MST);
+        
+        if (source_idx == 0) {
+            RoadPt r_pt(start_point);
+            branch.push_back(r_pt);
+        }
+        else{
+            PclPoint pt = simplified_points->at(source_idx - 1);
+            RoadPt r_pt;
+            r_pt.x = pt.x;
+            r_pt.y = pt.y;
+            r_pt.head = pt.head;
+            branch.push_back(r_pt);
+        }
+        
+        if (target_idx == 0) {
+            RoadPt r_pt(start_point);
+            branch.push_back(start_point);
+        }
+        else{
+            PclPoint pt = simplified_points->at(target_idx - 1);
+            RoadPt r_pt;
+            r_pt.x = pt.x;
+            r_pt.y = pt.y;
+            r_pt.head = pt.head;
+            branch.push_back(r_pt);
+        }
     }
+    
+    branches.push_back(branch);
+    
+    return 0.0f;
     
     int n_vertices = num_vertices(MST);
     vector<int> depth(n_vertices, 0);
@@ -2257,6 +2885,7 @@ float splitModelFitting(RoadPt& start_point,
     
     float MIN_BRANCH_LENGTH = 30.0f;
     
+    vector<vector<RoadPt> > raw_branches;
     if (n_vertices > 0) {
         dfs_depth_visitor vis(depth, parents);
         
@@ -2271,7 +2900,7 @@ float splitModelFitting(RoadPt& start_point,
             }
         }
         
-        vector<vector<int>> paths;
+        vector<vector<int> > paths;
         vector<int> first_path;
         vector<bool> marked(n_vertices, false);
         first_path.push_back(max_depth_idx);
@@ -2286,6 +2915,7 @@ float splitModelFitting(RoadPt& start_point,
         }
         paths.push_back(first_path);
         
+        int n_cur_path = 1;
         while (true) {
             float cum_max_branch_length = 0.0f;
             
@@ -2306,7 +2936,7 @@ float splitModelFitting(RoadPt& start_point,
                     }
                     
                     cur_length++;
-                   
+                    
                     float start_x;
                     float start_y;
                     if (cur_node == 0) {
@@ -2370,6 +3000,11 @@ float splitModelFitting(RoadPt& start_point,
                 p = parents[p];
             }
             paths.push_back(this_path);
+            n_cur_path++;
+            
+            if(n_cur_path > 3){
+                break;
+            }
         }
         
         for(size_t s = 0; s < paths.size(); ++s){
@@ -2405,160 +3040,370 @@ float splitModelFitting(RoadPt& start_point,
                     branch.push_back(r_pt);
                 }
             }
-            branches.push_back(branch);
+            raw_branches.push_back(branch);
+            //branches.push_back(branch);
         }
     }
     
-//    branches.push_back(branch);
+    if (raw_branches.size() == 0) {
+        return 0.0f;
+    }
+    
+    vector<vector<RoadPt> > updated_branches;
+    // Remove abrupt turns
+    for (size_t i = 0; i < raw_branches.size(); ++i) {
+        vector<RoadPt>& cur_raw_branch = raw_branches[i];
+        vector<RoadPt> new_branch;
+        new_branch.push_back(cur_raw_branch[0]);
+    
+        float cum_length = 0.0f;
+        int last_recorded_idx = 0;
+        int s = 1;
+        Eigen::Vector2d last_dir = headingTo2dVector(cur_raw_branch[0].head);
+        while (s < cur_raw_branch.size()) {
+            Eigen::Vector2d vec(cur_raw_branch[s].x - cur_raw_branch[last_recorded_idx].x,
+                                cur_raw_branch[s].y - cur_raw_branch[last_recorded_idx].y);
+            if (last_dir.dot(vec) < -0.1f) {
+                ++s;
+                continue;
+            }
+            else{
+                // Insert
+                last_dir = vec;
+                new_branch.push_back(cur_raw_branch[s]);
+                cum_length += roadPtDistance(cur_raw_branch[s], cur_raw_branch[last_recorded_idx]);
+                last_recorded_idx = s;
+                ++s;
+            }
+        }
+        if (cum_length > 25.0f) {
+            updated_branches.push_back(new_branch);
+        }
+    }
+    vector<bool> updated_branch_is_valid(raw_branches.size(), true);
+    
+    float junc_x = 0.0f;
+    float junc_y = 0.0f;
+    int n_junc = 0;
+    if (updated_branches.size() > 1) {
+        junc_x = updated_branches[1][0].x;
+        junc_y = updated_branches[1][0].y;
+        n_junc = 1;
+        for (int s = 2; s < updated_branches.size(); ++s) {
+            if (roadPtDistance(updated_branches[1][0], updated_branches[s][0]) < 10.0f) {
+                junc_x += updated_branches[s][0].x;
+                junc_y += updated_branches[s][0].y;
+                ++n_junc;
+            }
+            else{
+                updated_branch_is_valid[s] = false;
+            }
+        }
+        junc_x /= n_junc;
+        junc_y /= n_junc;
+    }
+    
+    // update junction location
+    if (n_junc > 0) {
+        int i_iter = 0;
+        int max_iter = 100;
+        float cur_score = 0.0f;
+        for (int s = 0; s < updated_branches.size(); ++s) {
+            if (!updated_branch_is_valid[s]) {
+                continue;
+            }
+            vector<RoadPt>& cur_raw_branch = updated_branches[s];
+            for (int t = 0; t < cur_raw_branch.size(); ++t) {
+                float d_x_to_junc = cur_raw_branch[t].x - junc_x;
+                float d_y_to_junc = cur_raw_branch[t].y - junc_y;
+                float dist_to_junc = sqrt(d_x_to_junc*d_x_to_junc + d_y_to_junc*d_y_to_junc);
+                if (dist_to_junc > 50.0f && dist_to_junc < 100.0f) {
+                    Eigen::Vector2d vec1(d_x_to_junc, d_y_to_junc);
+                    Eigen::Vector2d pt_dir = headingTo2dVector(cur_raw_branch[t].head);
+                    float dot_value = abs(vec1.dot(pt_dir));
+                    cur_score += 1.0f - dot_value;
+                }
+            }
+        }
+        while (i_iter < max_iter) {
+            float score = 0.0f;
+            
+            float dx = 2.0f * double(rand()) / RAND_MAX - 1.0f;
+            float dy = 2.0f * double(rand()) / RAND_MAX - 1.0f;
+            
+            float new_junc_x = junc_x + dx;
+            float new_junc_y = junc_y + dy;
+            
+            int count = 0;
+            for (int s = 0; s < updated_branches.size(); ++s) {
+                if (!updated_branch_is_valid[s]) {
+                    continue;
+                }
+                vector<RoadPt>& cur_raw_branch = updated_branches[s];
+                for (int t = 0; t < cur_raw_branch.size(); ++t) {
+                    float d_x_to_junc = cur_raw_branch[t].x - new_junc_x;
+                    float d_y_to_junc = cur_raw_branch[t].y - new_junc_y;
+                    float dist_to_junc = sqrt(d_x_to_junc*d_x_to_junc + d_y_to_junc*d_y_to_junc);
+                    if (dist_to_junc > 50.0f && dist_to_junc < 100.0f) {
+                        ++count;
+                        Eigen::Vector2d vec1(d_x_to_junc, d_y_to_junc);
+                        Eigen::Vector2d pt_dir = headingTo2dVector(cur_raw_branch[t].head);
+                        float dot_value = abs(vec1.dot(pt_dir));
+                        score += 1.0f - dot_value;
+                    }
+                }
+            }
+            
+            if (count == 0) {
+                score = 1e10;
+            }
+            
+            if (score < cur_score) {
+                cur_score = score;
+                junc_x = new_junc_x;
+                junc_y = new_junc_y;
+            }
+            
+            ++i_iter;
+        }
+    }
+    
+//    for (size_t s = 0; s < updated_branches.size(); ++s) {
+//        if (updated_branch_is_valid[s]) {
+//            branches.push_back(updated_branches[s]);
+//        }
+//    }
+    
+        for (size_t s = 0; s < raw_branches.size(); ++s) {
+            branches.push_back(raw_branches[s]);
+        }
+    
 //    vector<RoadPt> simp_points;
-//    for(size_t i = 0; i < simplified_points->size(); ++i){
-//        PclPoint& pt = simplified_points->at(i);
-//        RoadPt r_pt(start_point);
-//        r_pt.x = pt.x;
-//        r_pt.y = pt.y;
-//        r_pt.head = pt.head;
-//        simp_points.push_back(r_pt);
-//    }
-//    
-//    branches.push_back(simp_points);
-//    
+    for(size_t i = 0; i < simplified_points->size(); ++i){
+        PclPoint& pt = simplified_points->at(i);
+        RoadPt r_pt(start_point);
+        r_pt.x = pt.x;
+        r_pt.y = pt.y;
+        r_pt.head = pt.head;
+        simp_points.push_back(r_pt);
+    }
+    
+//    vector<RoadPt> b;
+//    RoadPt p(start_point);
+//    p.x = junc_x;
+//    p.y = junc_y;
+//    b.push_back(p);
+//    branches.push_back(b);
+    
+    branches.push_back(simp_points);
 //    vector<RoadPt> simp_points_dir;
-//    for(size_t i = 0; i < simplified_points->size(); ++i){
-//        PclPoint& pt = simplified_points->at(i);
-//        RoadPt r_pt(start_point);
-//        r_pt.x = pt.x;
-//        r_pt.y = pt.y;
-//        r_pt.head = pt.head;
-//        simp_points_dir.push_back(r_pt);
-//        
-//        Eigen::Vector2d dir = headingTo2dVector(pt.head);
-//       
-//        RoadPt r_pt1(start_point);
-//        r_pt1.x = pt.x + 10.0f * dir[0];
-//        r_pt1.y = pt.y + 10.0f * dir[1];
-//        r_pt1.head = pt.head;
-//        simp_points_dir.push_back(r_pt1);
-//    }
-//    
-//    branches.push_back(simp_points_dir);
+    for(size_t i = 0; i < simplified_points->size(); ++i){
+        PclPoint& pt = simplified_points->at(i);
+        RoadPt r_pt(start_point);
+        r_pt.x = pt.x;
+        r_pt.y = pt.y;
+        r_pt.head = pt.head;
+        simp_points_dir.push_back(r_pt);
+        
+        Eigen::Vector2d dir = headingTo2dVector(pt.head);
+        
+        RoadPt r_pt1(start_point);
+        r_pt1.x = pt.x + 10.0f * dir[0];
+        r_pt1.y = pt.y + 10.0f * dir[1];
+        r_pt1.head = pt.head;
+        simp_points_dir.push_back(r_pt1);
+    }
+    
+    branches.push_back(simp_points_dir);
+    
+    return 0.0f;
+    
+    float delta_growing_length = Parameters::getInstance().deltaGrowingLength();
+    float delta_heading_bin = 5.0f; // in degrees
+    float max_delta_heading_threshold = 45.0f;
+    if (raw_branches.size() > 1) {
+        RoadPt junc_loc(raw_branches[1][0]);
+        if(roadPtDistance(junc_loc, start_point) > 1.5f * delta_growing_length){
+            vector<RoadPt>& first_raw_branch = raw_branches[0];
+            
+            vector<RoadPt> branch;
+            float cum_length = 0.0f;
+            branch.push_back(first_raw_branch[0]);
+            int last_recorded_idx = 0;
+            int s = 1;
+            Eigen::Vector2d last_dir = headingTo2dVector(first_raw_branch[0].head);
+            while (s < first_raw_branch.size()) {
+                Eigen::Vector2d vec(first_raw_branch[s].x - first_raw_branch[last_recorded_idx].x,
+                                    first_raw_branch[s].y - first_raw_branch[last_recorded_idx].y);
+                if (last_dir.dot(vec) < 0) {
+                    ++s;
+                    continue;
+                }
+                else{
+                    // Insert
+                    last_dir = vec;
+                    branch.push_back(first_raw_branch[s]);
+                    cum_length += roadPtDistance(first_raw_branch[s], first_raw_branch[last_recorded_idx]);
+                    last_recorded_idx = s;
+                    ++s;
+                }
+                
+                if (cum_length > delta_growing_length) {
+                    break;
+                }
+            }
+            
+            smoothCurve(branch);
+            
+            branches.push_back(branch);
+        }
+        else{
+            // Now comes the real branch
+            for (size_t s = 0; s < raw_branches.size(); ++s) {
+                branches.push_back(raw_branches[s]);
+            }
+        }
+    }
+    else{
+        vector<RoadPt> branch;
+        vector<RoadPt>& first_raw_branch = raw_branches[0];
+        float cum_length = 0.0f;
+        branch.push_back(first_raw_branch[0]);
+        for (int s = 1; s < first_raw_branch.size(); ++s) {
+            cum_length += roadPtDistance(first_raw_branch[s], first_raw_branch[s-1]);
+            if (cum_length > delta_growing_length) {
+                break;
+            }
+            
+            branch.push_back(first_raw_branch[s]);
+        }
+        
+        // Resample point heading
+        for (size_t s = 0; s < first_raw_branch.size(); ++s) {
+            RoadPt& r_pt = first_raw_branch[s];
+            
+            adjustRoadPtHeading(r_pt,
+                                points,
+                                search_tree,
+                                search_radius,
+                                max_delta_heading_threshold,
+                                delta_heading_bin,
+                                true);
+        }
+        
+        smoothCurve(branch);
+        
+        branches.push_back(branch);
+    }
     
     return 0.0f;
 }
 
-//float crossModelFitting(RoadPt& start_point,
-//                        PclPointCloud::Ptr& points,
-//                        PclSearchTree::Ptr& search_tree,
-//                        vector<RoadPt>& extension,
-//                        bool grow_backward){
+//bool branchPrediction(RoadPt&             start_point,
+//                      set<int>&           candidate_set,
+//                      map<int, bool>&     traj_aligned_with_road,
+//                      Trajectories*       trajectories,
+//                      RoadPt&             junction_loc,
+//                      vector<vector<RoadPt> >&     branches,
+//                      bool                grow_backward){
+//    branches.clear();
+//    // Initialize point cloud
+//    // Initialize point cloud
+//    PclPointCloud::Ptr orig_points(new PclPointCloud);
+//    PclSearchTree::Ptr orig_search_tree(new pcl::search::FlannSearch<PclPoint>(false));
+//    
+//    // Add points to point cloud
+//    map<int, int> pt_idx_mapping;
+//    for (set<int>::iterator it = candidate_set.begin(); it != candidate_set.end(); ++it) {
+//        PclPoint& pt = trajectories->data()->at(*it);
+//        pt_idx_mapping[*it] = orig_points->size();
+//        orig_points->push_back(pt);
+//    }
+//    
+//    if(orig_points->size() == 0){
+//        return false;
+//    }
+//    
+//    orig_search_tree->setInputCloud(orig_points);
+//    
+//    PclPointCloud::Ptr points(new PclPointCloud);
+//    PclSearchTree::Ptr search_tree(new pcl::search::FlannSearch<PclPoint>(false));
+//    
+//    vector<int> is_covered(orig_points->size(), false);
+//    
+//    // Point heading will be aligned to the maximum histogram bin
+//    for (size_t i = 0; i < orig_points->size(); ++i) {
+//        if (is_covered[i]) {
+//            continue;
+//        }
+//        
+//        PclPoint& pt = orig_points->at(i);
+//        is_covered[i] = true;
+//        
+//        float pt_speed = pt.speed / 100.0f;
+//        if(pt_speed < 4.0f){
+//            continue;
+//        }
+//        
+//        vector<int> k_indices;
+//        vector<float> k_dist_sqrs;
+//        
+//        set<int> traj_support;
+//        orig_search_tree->radiusSearch(pt, 5.0f, k_indices, k_dist_sqrs);
+//        
+//        // Mark corresponding nearby points
+//        int weight = 0;
+//        for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
+//            PclPoint& nearby_pt = orig_points->at(*it);
+//            float delta_heading = abs(deltaHeading1MinusHeading2(nearby_pt.head, pt.head));
+//            if (delta_heading < 7.5f) {
+//                weight++;
+//                is_covered[*it] = true;
+//            }
+//        }
+//        
+//        pt.id_sample = weight;
+//        points->push_back(pt);
+//    }
+//    
+//    if(points->size() == 0){
+//        return false;
+//    }
+//    
+//    search_tree->setInputCloud(points);
+//    
 //    bool is_oneway = start_point.is_oneway;
+//    if (is_oneway) {
+//        // Branching for oneway
+//        vector<RoadPt> grow_extension;
+////        float grow_score = growModelFitting(start_point, points, search_tree, grow_extension, false);
+////        cout << "Grow score: " << grow_score << endl;
+//        
+//        branchFitting(start_point,
+//                      points,
+//                      search_tree,
+//                      trajectories,
+//                      branches);
+//    }
+//    else{
+//        vector<RoadPt> grow_extension;
+////        float grow_score = growModelFitting(start_point, points, search_tree, grow_extension, false);
+////        cout << "Grow score: " << grow_score << endl;
+//        
+//        branchFitting(start_point,
+//                      points,
+//                      search_tree,
+//                      trajectories,
+//                      branches);
+//    }
 //    
-//    // Initial guess using heuristics
-//    
-//   
-//    return 0.0f;
+//    if(branches.size() > 1){
+//        return true;
+//    }
+//    else{
+//        return false;
+//    }
 //}
-
-bool branchPrediction(float               search_radius,
-                      RoadPt&             start_point,
-                      set<int>&           candidate_set,
-                      Trajectories*       trajectories,
-                      RoadPt&             junction_loc,
-                      vector<vector<RoadPt> >&     branches,
-                      bool                grow_backward){
-    branches.clear();
-    // Initialize point cloud
-    // Initialize point cloud
-    PclPointCloud::Ptr orig_points(new PclPointCloud);
-    PclSearchTree::Ptr orig_search_tree(new pcl::search::FlannSearch<PclPoint>(false));
-    
-    // Add points to point cloud
-    for (set<int>::iterator it = candidate_set.begin(); it != candidate_set.end(); ++it) {
-        PclPoint& pt = trajectories->data()->at(*it);
-        orig_points->push_back(pt);
-    }
-    
-    if(orig_points->size() == 0){
-        return false;
-    }
-    
-    orig_search_tree->setInputCloud(orig_points);
-   
-    PclPointCloud::Ptr points(new PclPointCloud);
-    PclSearchTree::Ptr search_tree(new pcl::search::FlannSearch<PclPoint>(false));
-    
-    vector<int> is_covered(orig_points->size(), false);
-    for (size_t i = 0; i < orig_points->size(); ++i) {
-        if (is_covered[i]) {
-            continue;
-        }
-        
-        PclPoint& pt = orig_points->at(i);
-        
-        vector<int> k_indices;
-        vector<float> k_dist_sqrs;
-        
-        set<int> traj_support;
-        orig_search_tree->radiusSearch(pt, 5.0f, k_indices, k_dist_sqrs);
-        int weight = 0;
-        for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
-            if (is_covered[*it]) {
-                continue;
-            }
-            
-            PclPoint& nearby_pt = orig_points->at(*it);
-            float delta_heading = abs(deltaHeading1MinusHeading2(nearby_pt.head, pt.head));
-            if (delta_heading < 7.5f) {
-                is_covered[*it] = true;
-                weight++;
-                traj_support.insert(nearby_pt.id_trajectory);
-            }
-        }
-        
-        is_covered[i] = true;
-        
-        pt.id_sample = weight;
-        
-        if(traj_support.size() > 0){
-            points->push_back(pt);
-        }
-    }
-    
-    if(points->size() == 0){
-        return false;
-    }
-    
-    search_tree->setInputCloud(points);
-    
-    bool is_oneway = start_point.is_oneway;
-    if (is_oneway) {
-        // Branching for oneway
-        vector<RoadPt> grow_extension;
-//        float grow_score = growModelFitting(start_point, points, search_tree, grow_extension, false);
-//        cout << "Grow score: " << grow_score << endl;
-        
-        splitModelFitting(start_point,
-                          points,
-                          search_tree,
-                          branches);
-    }
-    else{
-        vector<RoadPt> grow_extension;
-//        float grow_score = growModelFitting(start_point, points, search_tree, grow_extension, false);
-//        cout << "Grow score: " << grow_score << endl;
-        
-        splitModelFitting(start_point,
-                          points,
-                          search_tree,
-                          branches);
-    }
-    
-    if(branches.size() > 1){
-        return true;
-    }
-    else{
-        return false;
-    }
-}
 
 //bool branchPrediction(float               search_radius,
 //                      RoadPt&             start_point,

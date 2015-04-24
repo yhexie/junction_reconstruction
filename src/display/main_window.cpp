@@ -12,7 +12,6 @@
 #include "scene_widget.h"
 #include "main_window.h"
 #include "latlon_converter.h"
-#include <QDebug>
 
 MainWindow::MainWindow(QWidget *parent):
 QMainWindow(parent), ui_(new Ui::MainWindowClass), workspace_(".")
@@ -165,6 +164,15 @@ void MainWindow::init(void)
     connect(ui_->saveQueryQSamples, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotSaveQueryQTrainingSamples()));
     connect(ui_->trainQueryQClassifier, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotTrainQueryQClassifier()));
     connect(ui_->saveQueryQClassifier, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotSaveQueryQClassifer()));
+    
+    // Parameters
+    connect(ui_->parameterSearchRadius, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotParameterSearchRadiusChanged(double)));
+    connect(ui_->parameterGPSErrorSigma, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotParameterGpsErrorSigmaChanged(double)));
+    connect(ui_->parameterGPSErrorHeading, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotParameterGpsErrorHeadinbgChanged(double)));
+    
+    connect(ui_->parameterDeltaGrowingLength, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotParameterDeltaGrowingLengthChanged(double)));
+    connect(ui_->parameterBranchPredictorExtensionRatio, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotParameterBranchPredictorExtensionRatioChanged(double)));
+    connect(ui_->parameterBranchPredictorMaxTExtension, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotParameterBranchPredictorMaxTExtension(double)));
     
     // Clear All
     connect(ui_->actionClearAll, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotClearAll()));

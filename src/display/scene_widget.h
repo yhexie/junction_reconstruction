@@ -12,7 +12,6 @@
 #include "features.h"
 
 using namespace std;
-
 class QMenu;
 class Trajectories;
 class RoadGenerator;
@@ -100,6 +99,15 @@ signals:
     void slotSaveQueryQTrainingSamples();
     void slotTrainQueryQClassifier();
     void slotSaveQueryQClassifer();
+    
+    // Parameters
+    void slotParameterSearchRadiusChanged(double);
+    void slotParameterGpsErrorSigmaChanged(double);
+    void slotParameterGpsErrorHeadinbgChanged(double);
+    
+    void slotParameterDeltaGrowingLengthChanged(double);
+    void slotParameterBranchPredictorExtensionRatioChanged(double);
+    void slotParameterBranchPredictorMaxTExtension(double);
     
     // Others
     void slotClearAll(void);

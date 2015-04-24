@@ -70,7 +70,15 @@ struct RoadPt{
     int   head;
     bool  is_oneway;
     int   n_lanes;
-    RoadPt() {x = 0.0f; y = 0.0f; head = 0; is_oneway = true; n_lanes = 1;}
+    
+    RoadPt() {
+        x = 0.0f;
+        y = 0.0f;
+        head = 0;
+        is_oneway = true;
+        n_lanes = 1;
+    }
+    
     RoadPt(float tx,
            float ty,
            int thead,
@@ -121,6 +129,8 @@ namespace Common{
     void randomK(std::vector<int>& random_k, int k, int N);
 }
 
+float roadPtDistance(const RoadPt& p1, const RoadPt& p2);
+
 void findMaxElement(const vector<float> hist, int& max_idx);
 
 void peakDetector(vector<float>& hist, int window, float ratio, vector<int>& peak_idxs,bool is_closed = true);
@@ -137,6 +147,79 @@ int decreaseHeadingBy(int delta_heading,
                       const int orig_heading);
 
 void smoothCurve(vector<RoadPt>& center_line, bool fix_front = true);
+
+/*
+    sampleRoadSkeletonPoints: this function extract a set of candidate skeleton points from the original point cloud: points
+ */
+void sampleRoadSkeletonPoints(float search_radius,
+                              float heading_threshold,
+                              float delta_perp_bin,
+                              float sigma_perp_s,
+                              float delta_head_bin,
+                              float sigma_head_s,
+                              int   min_n,
+                              bool  is_oneway,
+                              const PclPointCloud::Ptr& points,
+                              const PclSearchTree::Ptr& search_tree,
+                              PclPointCloud::Ptr& new_points,
+                              PclSearchTree::Ptr& new_search_tree);
+
+void adjustRoadPtHeading(RoadPt& r_pt,
+                         PclPointCloud::Ptr& points,
+                         PclSearchTree::Ptr& search_tree,
+                         float search_radius,
+                         float heading_threshold,
+                         float delta_bin,
+                         bool pt_id_sample_store_weight = false);
+
+void adjustRoadCenterAt(RoadPt& r_pt,
+                        PclPointCloud::Ptr& points,
+                        PclSearchTree::Ptr& search_tree,
+                        float search_radius,
+                        float heading_threshold,
+                        float delta_bin,
+                        float sigma_s,
+                        bool pt_id_sample_store_weight = false);
+
+class Parameters{
+public:
+    static Parameters& getInstance() {
+        static Parameters singleton_;
+        return singleton_;
+    }
+   
+    float& searchRadius() { return search_radius_; }
+    float& deltaGrowingLength() { return delta_growing_length_; }
+    float& gpsSigma() { return gps_sigma_; }
+    float& gpsMaxHeadingError() { return gps_max_heading_error_; }
+    
+    float& branchPredictorExtensionRatio() { return branch_predictor_extension_ratio_; }
+    float& branchPredictorMaxTExtension() { return branch_predictor_max_t_extension_; }
+    
+private:
+    Parameters() {
+        search_radius_ = 25.0f;
+        gps_sigma_ = 10.0f;
+        gps_max_heading_error_ = 15.0f;
+        delta_growing_length_ = 50.0f;
+        branch_predictor_extension_ratio_ = 6.0f;
+        branch_predictor_max_t_extension_ = 30.0f;
+    }
+    
+    Parameters(Parameters const&) = delete;
+    void operator=(Parameters const&) = delete;
+    
+    virtual ~Parameters() {};
+    
+    // Parameters
+    float search_radius_;
+    float delta_growing_length_;
+    float gps_sigma_;
+    float gps_max_heading_error_;
+    
+    float branch_predictor_extension_ratio_;
+    float branch_predictor_max_t_extension_;
+};
 
 class SceneConst
 {

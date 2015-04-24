@@ -17,6 +17,7 @@
 #include <pcl/common/centroid.h>
 #include <pcl/search/impl/flann_search.hpp>
 #include "features.h"
+#include "common.h"
 #include <cmath>
 #include <random>
 #include <Eigen/Dense>
@@ -143,6 +144,11 @@ public:
     void generateRoadFromPoints(vector<int>& candidate_pt_idxs,
                                 vector<RoadPt>& road);
     
+    // Trajectory - Road projection
+    void updateGPSPointsOnRoad(RoadSymbol* road);
+    void getConsistentPointSetForRoad(RoadSymbol* road,
+                                      set<int>& candidate_point_set,
+                                      bool backward);
     
     void detectOverlappingRoadSeeds(vector<RoadSymbol*>& road_list, vector<vector<int>>& result);
     
@@ -212,7 +218,6 @@ private:
     vector<Color>                   line_colors_;
     vector<Vertex>                  points_to_draw_;
     vector<Color>                   point_colors_;
-    
     
     int                             j;
     RoadSymbol*                     new_road;

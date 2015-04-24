@@ -27,8 +27,6 @@
 #include <opengm/inference/gibbs.hxx>
 #pragma clang diagnostic pop
 
-using namespace opengm;
-
 void polygonalFitting(vector<Vertex>& pts,
                       vector<Vertex>& results,
                       float& avg_dist){
@@ -1529,68 +1527,71 @@ void RoadGenerator::applyQueryInitClassifier(float radius){
     }
     
     // OpenGM session
-    typedef SimpleDiscreteSpace<size_t, size_t> Space;
-    Space space(samples->size(), 3);
-    
-    // construct a graphical model with
-    // - addition as the operation (template parameter Adder)
-    // - support for Potts functions (template parameter PottsFunction<double>)
-    typedef GraphicalModel<double, Adder, OPENGM_TYPELIST_2(ExplicitFunction<double> , PottsFunction<double> ) , Space> Model;
-    Model gm(space);
-    
-    // for each node (x, y) in the grid, i.e. for each variable
-    // variableIndex(x, y) of the model, add one 1st order functions
-    // and one 1st order factor
-    for(size_t i = 0; i < samples->size(); ++i){
-        // function
-        const size_t shape[] = {3};
-        ExplicitFunction<double> f(shape, shape + 1);
-        for(int s = 0; s < 3; ++s) {
-            f(s) = abs(s - query_init_labels_[i]);
+    {
+        using namespace opengm;
+        typedef SimpleDiscreteSpace<size_t, size_t> Space;
+        Space space(samples->size(), 3);
+        
+        // construct a graphical model with
+        // - addition as the operation (template parameter Adder)
+        // - support for Potts functions (template parameter PottsFunction<double>)
+        typedef GraphicalModel<double, Adder, OPENGM_TYPELIST_2(ExplicitFunction<double> , PottsFunction<double> ) , Space> Model;
+        Model gm(space);
+        
+        // for each node (x, y) in the grid, i.e. for each variable
+        // variableIndex(x, y) of the model, add one 1st order functions
+        // and one 1st order factor
+        for(size_t i = 0; i < samples->size(); ++i){
+            // function
+            const size_t shape[] = {3};
+            ExplicitFunction<double> f(shape, shape + 1);
+            for(int s = 0; s < 3; ++s) {
+                f(s) = abs(s - query_init_labels_[i]);
+            }
+            
+            Model::FunctionIdentifier fid = gm.addFunction(f);
+            
+            // factor
+            size_t variableIndices[] = {i};
+            gm.addFactor(fid, variableIndices, variableIndices + 1);
         }
         
+        // add one (!) 2nd order Potts function
+        PottsFunction<double> f(3, 3, 0.0, 1.0f);
         Model::FunctionIdentifier fid = gm.addFunction(f);
         
-        // factor
-        size_t variableIndices[] = {i};
-        gm.addFactor(fid, variableIndices, variableIndices + 1);
-    }
-    
-    // add one (!) 2nd order Potts function
-    PottsFunction<double> f(3, 3, 0.0, 1.0f);
-    Model::FunctionIdentifier fid = gm.addFunction(f);
-    
-    // for each pair of nodes (x1, y1), (x2, y2) which are adjacent on the grid,
-    // add one factor that connects the corresponding variable indices and
-    // refers to the Potts function
-    for (auto eit = es.first; eit != es.second; ++eit) {
-        size_t source_id = source(*eit, G);
-        size_t target_id = target(*eit, G);
-        size_t variableIndices[] = {source_id, target_id};
-        sort(variableIndices, variableIndices + 2);
-        gm.addFactor(fid, variableIndices, variableIndices + 2);
-    }
-    
-    // set up the optimizer (loopy belief propagation)
-    typedef BeliefPropagationUpdateRules<Model, opengm::Minimizer> UpdateRules;
-    typedef MessagePassing<Model, opengm::Minimizer, UpdateRules, opengm::MaxDistance> BeliefPropagation;
-    const size_t maxNumberOfIterations = 40;
-    const double convergenceBound = 1e-7;
-    const double damping = 0.5;
-    BeliefPropagation::Parameter parameter(maxNumberOfIterations, convergenceBound, damping);
-    BeliefPropagation bp(gm, parameter);
-    
-    // optimize (approximately)
-    BeliefPropagation::VerboseVisitorType visitor;
-    bp.infer(visitor);
-    
-    // obtain the (approximate) argmin
-    vector<size_t> labeling(samples->size());
-    bp.arg(labeling);
-    
-    // output the (approximate) argmin
-    for(size_t i = 0; i < samples->size(); ++i){
-        query_init_labels_[i] = labeling[i];
+        // for each pair of nodes (x1, y1), (x2, y2) which are adjacent on the grid,
+        // add one factor that connects the corresponding variable indices and
+        // refers to the Potts function
+        for (auto eit = es.first; eit != es.second; ++eit) {
+            size_t source_id = source(*eit, G);
+            size_t target_id = target(*eit, G);
+            size_t variableIndices[] = {source_id, target_id};
+            sort(variableIndices, variableIndices + 2);
+            gm.addFactor(fid, variableIndices, variableIndices + 2);
+        }
+        
+        // set up the optimizer (loopy belief propagation)
+        typedef BeliefPropagationUpdateRules<Model, opengm::Minimizer> UpdateRules;
+        typedef MessagePassing<Model, opengm::Minimizer, UpdateRules, opengm::MaxDistance> BeliefPropagation;
+        const size_t maxNumberOfIterations = 40;
+        const double convergenceBound = 1e-7;
+        const double damping = 0.5;
+        BeliefPropagation::Parameter parameter(maxNumberOfIterations, convergenceBound, damping);
+        BeliefPropagation bp(gm, parameter);
+        
+        // optimize (approximately)
+        BeliefPropagation::VerboseVisitorType visitor;
+        bp.infer(visitor);
+        
+        // obtain the (approximate) argmin
+        vector<size_t> labeling(samples->size());
+        bp.arg(labeling);
+        
+        // output the (approximate) argmin
+        for(size_t i = 0; i < samples->size(); ++i){
+            query_init_labels_[i] = labeling[i];
+        }
     }
     
     for(int i = 0; i < query_init_features_.size(); ++i){
@@ -2043,140 +2044,196 @@ void RoadGenerator::tmpFunc(){
     if (j < road.size()) {
         cout << "\tcurrent j = " << j << endl;
         RoadPt& r_pt = road[j];
-        if (new_road->center().size() > 0) {
+        if (new_road->centerLine().size() > 0) {
             // increase cur_cum_length
-            RoadPt& last_pt = new_road->center().back();
+            const RoadPt& last_pt = new_road->centerLine().back();
             float delta_x = r_pt.x - last_pt.x;
             float delta_y = r_pt.y - last_pt.y;
             cur_cum_length += sqrt(delta_x*delta_x + delta_y*delta_y);
         }
         
-        new_road->center().push_back(r_pt);
+        new_road->addRoadPtAtEnd(r_pt);
         
         if(cur_cum_length > 50.0f){
             RoadPt junction_loc;
             vector<vector<RoadPt> > branches;
             set<int> candidate_point_set;
-            computeConsistentPointSet(radius,
-                                      trajectories_,
-                                      new_road->center(),
-                                      candidate_point_set,
-                                      false);
+            map<int, bool> traj_aligned_with_road;
+//            computeConsistentPointSet(trajectories_,
+//                                      new_road->centerLine(),
+//                                      candidate_point_set,
+//                                      traj_aligned_with_road,
+//                                      false);
             
-            bool to_branch = branchPrediction(radius,
-                                              r_pt,
+            getConsistentPointSetForRoad(new_road,
+                                         candidate_point_set,
+                                         false);
+            
+            bool to_branch = branchPrediction(r_pt,
                                               candidate_point_set,
                                               trajectories_,
                                               junction_loc,
                                               branches);
-            if(to_branch){
-                float junc_x = branches[1].front().x;
-                float junc_y = branches[1].front().y;
-                Eigen::Vector2d v_junc(r_pt.x - junc_x,
-                                       r_pt.y - junc_y);
-                float v_junc_length = v_junc.norm();
-                if (v_junc_length > 20.0f) {
-                    ++j;
-                    return;
+            
+            // Visualization
+            if (branches.size() > 0) {
+                feature_vertices_.clear();
+                feature_colors_.clear();
+                points_to_draw_.clear();
+                point_colors_.clear();
+                lines_to_draw_.clear();
+                line_colors_.clear();
+                
+                for (set<int>::iterator pit = candidate_point_set.begin(); pit != candidate_point_set.end(); ++pit) {
+                    PclPoint& pt = trajectories_->data()->at(*pit);
+                    
+                    points_to_draw_.push_back(SceneConst::getInstance().normalize(pt.x, pt.y, Z_DEBUG));
+                    point_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::BLUE));
                 }
-                else{
-                    new_road->endState()  = TERMINAL;
+                
+                int simplified_pt_idx = 0;
+                vector<RoadPt>& simplified_pt_branch = branches[simplified_pt_idx];
+                for(size_t s = 0; s < simplified_pt_branch.size(); ++s){
+                    RoadPt& r_pt = simplified_pt_branch[s];
+                    feature_vertices_.push_back(SceneConst::getInstance().normalize(r_pt.x, r_pt.y, Z_DEBUG));
+                    feature_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::ORANGE));
+                }
+                vector<RoadPt>& last_branch = branches[simplified_pt_idx+1];
+                int k = last_branch.size() / 2;
+                for (size_t s = 0; s < k; ++s) {
+                    lines_to_draw_.push_back(SceneConst::getInstance().normalize(last_branch[2*s].x, last_branch[2*s].y, Z_DEBUG));
+                    line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::GREEN));
                     
-                    // Add junction
-                    JunctionSymbol* new_junction = new JunctionSymbol;
-                    new_junction->loc()[0] = branches[1].front().x;
-                    new_junction->loc()[1] = branches[1].front().y;
-                    vertex_t junc_v = add_vertex(symbol_graph_);
-                    new_junction->vertex_descriptor() = junc_v;
-                    graph_nodes_[junc_v] = new_junction;
-    //                add_edge(u,
-    //                         junc_v,
-    //                         symbol_graph_);
-                    
-                    if(true){
-                        vector<RoadPt>& first_branch = branches[0];
-                        int start_idx = -1;
-                        float min_dist = 1e10;
-                        for(int k = 0; k < first_branch.size(); ++k){
-                            Eigen::Vector2d v(first_branch[k].x - junc_x,
-                                              first_branch[k].y - junc_y);
-                            float v_length = v.norm();
-                            if (v_length < min_dist) {
-                                min_dist = v_length;
-                                start_idx = k;
+                    lines_to_draw_.push_back(SceneConst::getInstance().normalize(last_branch[2*s+1].x, last_branch[2*s+1].y, Z_DEBUG));
+                    line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::GREEN));
+                }
+                
+                if (branches.size() > 2) {
+                    vector<RoadPt>& last_branch = branches[2];
+                    int k = last_branch.size() / 2;
+                    for (size_t s = 0; s < k; ++s) {
+                        lines_to_draw_.push_back(SceneConst::getInstance().normalize(last_branch[2*s].x, last_branch[2*s].y, Z_DEBUG+0.05f));
+                        line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::RED));
+                        
+                        lines_to_draw_.push_back(SceneConst::getInstance().normalize(last_branch[2*s+1].x, last_branch[2*s+1].y, Z_DEBUG+0.05f));
+                        line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::RED));
+                    }
+                }
+                
+                /*
+                if(branches.size() > 2){
+                    for (size_t i = 0; i < branches.size()-2; ++i) {
+                        vector<RoadPt>& branch = branches[i];
+                        if(branch.size() > 1){
+                            for(size_t s = 0; s < branch.size()-1; ++s){
+                                lines_to_draw_.push_back(SceneConst::getInstance().normalize(branch[s].x, branch[s].y, Z_DEBUG + 0.05f));
+                                line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::RED));
+                                
+                                lines_to_draw_.push_back(SceneConst::getInstance().normalize(branch[s+1].x, branch[s+1].y, Z_DEBUG + 0.05f));
+                                line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::RED));
                             }
                         }
-                        
-                        new_road = new RoadSymbol;
-                        cur_cum_length = 0.0f;
-                        new_road->startState() = TERMINAL;
-                        new_road->endState() = QUERY_Q;
-                        new_road->center().clear();
-                        vertex_t u = add_vertex(symbol_graph_);
-                        graph_nodes_[u] = new_road;
-                        new_road->vertex_descriptor() = u;
-                        
-                        for (int l = start_idx; l < first_branch.size(); ++l) {
-                            RoadPt new_r_pt(first_branch[l]);
-                            new_road->center().push_back(new_r_pt);
+                        else{
+                            RoadPt& r_pt = branch[0];
+                            feature_vertices_.push_back(SceneConst::getInstance().normalize(r_pt.x, r_pt.y, Z_DEBUG));
+                            feature_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::YELLOW));
                         }
+                    }
+                }
+                
+                int simplified_pt_idx = branches.size() - 2;
+                vector<RoadPt>& simplified_pt_branch = branches[simplified_pt_idx];
+                for(size_t s = 0; s < simplified_pt_branch.size(); ++s){
+                    RoadPt& r_pt = simplified_pt_branch[s];
+                    feature_vertices_.push_back(SceneConst::getInstance().normalize(r_pt.x, r_pt.y, Z_DEBUG));
+                    feature_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::ORANGE));
+                }
+                vector<RoadPt>& last_branch = branches[simplified_pt_idx+1];
+                int k = last_branch.size() / 2;
+                for (size_t s = 0; s < k; ++s) {
+                    lines_to_draw_.push_back(SceneConst::getInstance().normalize(last_branch[2*s].x, last_branch[2*s].y, Z_DEBUG));
+                    line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::GREEN));
+                    
+                    lines_to_draw_.push_back(SceneConst::getInstance().normalize(last_branch[2*s+1].x, last_branch[2*s+1].y, Z_DEBUG));
+                    line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::GREEN));
+                }
+                 */
+            }
+            
+            //if(to_branch){
+            if(false){
+                // Add junction
+                float junc_x = branches[1].front().x;
+                float junc_y = branches[1].front().y;
+                
+                JunctionSymbol* new_junction = new JunctionSymbol;
+                new_junction->loc()[0] = branches[1].front().x;
+                new_junction->loc()[1] = branches[1].front().y;
+                vertex_t junc_v = add_vertex(symbol_graph_);
+                new_junction->vertex_descriptor() = junc_v;
+                graph_nodes_[junc_v] = new_junction;
+                //                add_edge(u,
+                //                         junc_v,
+                //                         symbol_graph_);
+                
+                // Terminate current road
+                new_road->endState()  = TERMINAL;
+                
+                int last_idx = j + 1;
+                while(true){
+                    if (last_idx >= road.size()) {
+                        break;
                     }
                     
-                    for (int k = 1; k < branches.size(); ++k) {
-                        vector<RoadPt>& cur_branch = branches[k];
-                        
-                        new_road = new RoadSymbol;
-                        cur_cum_length = 0.0f;
-                        new_road->startState() = TERMINAL;
-                        new_road->endState() = QUERY_Q;
-                        new_road->center().clear();
-                        vertex_t u = add_vertex(symbol_graph_);
-                        graph_nodes_[u] = new_road;
-                        new_road->vertex_descriptor() = u;
-                        
-                        for (int l = 0; l < cur_branch.size(); ++l) {
-                            RoadPt new_r_pt(cur_branch[l]);
-                            new_road->center().push_back(new_r_pt);
-                        }
+                    Eigen::Vector2d vec(junc_x - road[last_idx].x,
+                                        junc_y - road[last_idx].y);
+                    Eigen::Vector2d dir = headingTo2dVector(road[last_idx].head);
+                    if(dir.dot(vec) < 0){
+                        break;
                     }
-                    
-                    // find closest point
-                    int max_count = 10;
-                    int min_dist_idx = j;
-                    float min_dist = 1e10;
-                    int count = 0;
-                    for(int k = j; k < road.size(); ++k){
-                        Eigen::Vector2d vec(road[k].x - junc_x,
-                                            road[k].y - junc_y);
-                        float len = vec.norm();
-                        if (min_dist < len) {
-                            min_dist = len;
-                            min_dist_idx = k;
-                        }
-                        
-                        count++;
-                        if (count > max_count) {
-                            break;
-                        }
-                    }
+                    ++last_idx;
+                }
+                
+                last_idx = (last_idx > road.size()) ? road.size() : last_idx;
+                
+                for (int s = j; s < last_idx; ++s) {
+                    new_road->addRoadPtAtEnd(road[s]);
+                }
+                
+                new_road->addRoadPtAtEnd(branches[1].front());
+                
+                // Add side branches
+                for (int k = 1; k < branches.size(); ++k) {
+                    vector<RoadPt>& cur_branch = branches[k];
                     
                     new_road = new RoadSymbol;
                     cur_cum_length = 0.0f;
                     new_road->startState() = TERMINAL;
                     new_road->endState() = QUERY_Q;
-                    new_road->center().clear();
                     vertex_t u = add_vertex(symbol_graph_);
                     graph_nodes_[u] = new_road;
                     new_road->vertex_descriptor() = u;
                     
-                    while (j <= min_dist_idx) {
-                        new_road->center().push_back(road[j]);
-                        ++j;
+                    for (int l = 0; l < cur_branch.size(); ++l) {
+                        RoadPt new_r_pt(cur_branch[l]);
+                        new_road->addRoadPtAtEnd(new_r_pt);
                     }
+                }
+                
+                j = last_idx;
+                if (last_idx < road.size()) {
+                    new_road = new RoadSymbol;
+                    cur_cum_length = 0.0f;
+                    new_road->startState() = TERMINAL;
+                    new_road->endState() = QUERY_Q;
+                    vertex_t u = add_vertex(symbol_graph_);
+                    graph_nodes_[u] = new_road;
+                    new_road->vertex_descriptor() = u;
+                    new_road->addRoadPtAtEnd(branches[1].front());
                 }
             }
             else{
-                new_road->center().push_back(road[j]);
+                new_road->addRoadPtAtEnd(road[j]);
             }
         }
         ++j;
@@ -2195,12 +2252,10 @@ bool RoadGenerator::addInitialRoad(){
     
     PclPoint point;
     radius = 25.0f;
-    bool DEBUG = false;
+    bool DEBUG = true;
     
     if(DEBUG){
         cout << "Running DEBUG mode from RoadGenerator::addInitialRoad()" << endl;
-        
-//        bool grow_backward = false;
         
         feature_vertices_.clear();
         feature_colors_.clear();
@@ -2209,261 +2264,139 @@ bool RoadGenerator::addInitialRoad(){
         lines_to_draw_.clear();
         line_colors_.clear();
         
-//        int pt_idx = tmp_;
-//        int i_road = 0;
-//        int cum_pt_count = 0;
-//        while(true){
-//            if (cum_pt_count + initial_roads_[i_road].size() > tmp_) {
-//                break;
-//            }
-//            else{
-//                cum_pt_count += initial_roads_[i_road].size();
-//                i_road++;
-//            }
-//        }
-//        pt_idx = tmp_ - cum_pt_count;
-//        
-//        if (i_road > initial_roads_.size()) {
-//            tmp_ = 0;
-//            return true;
-//        }
-        
-        i_road = tmp_ % initial_roads_.size();
-        
-        vector<RoadPt>& road = initial_roads_[i_road];
-        cout << "Current road: " << i_road <<", which has " << road.size() << " nodes" << endl;
-        if (road.size() < 2) {
-            tmp_++;
-            return true;
-        }
-        
-        /// I added
-        new_road = new RoadSymbol;
-        cur_cum_length = 0.0f;
-        new_road->startState() = QUERY_Q;
-        new_road->endState() = QUERY_Q;
-        
-        vertex_t u = add_vertex(symbol_graph_);
-        graph_nodes_[u] = new_road;
-        new_road->vertex_descriptor() = u;
-        
-        j = 0;
-//        while(j < road.size()){
-//            tmpFunc();
-//            RoadPt& r_pt = road[j];
-//            if (new_road->center().size() > 0) {
-//                // increase cur_cum_length
-//                RoadPt& last_pt = new_road->center().back();
-//                float delta_x = r_pt.x - last_pt.x;
-//                float delta_y = r_pt.y - last_pt.y;
-//                cur_cum_length += sqrt(delta_x*delta_x + delta_y*delta_y);
-//            }
-//            
-//            new_road->center().push_back(r_pt);
-//            
-//            if(cur_cum_length > 50.0f){
-//                RoadPt junction_loc;
-//                vector<vector<RoadPt> > branches;
-//                set<int> candidate_point_set;
-//                computeConsistentPointSet(radius,
-//                                          trajectories_,
-//                                          new_road->center(),
-//                                          candidate_point_set,
-//                                          grow_backward);
-//                
-//                bool to_branch = branchPrediction(radius,
-//                                                  r_pt,
-//                                                  candidate_point_set,
-//                                                  trajectories_,
-//                                                  junction_loc,
-//                                                  branches);
-//                if(to_branch){
-//                    // Add current road to graph
-//                    new_road->endState()  = TERMINAL;
-//                    vertex_t u = add_vertex(symbol_graph_);
-//                    graph_nodes_[u] = new_road;
-//                    new_road->vertex_descriptor() = u;
-//                    
-//                    // Add junction
-//                    JunctionSymbol* new_junction = new JunctionSymbol;
-//                    new_junction->loc()[0] = branches[1].front().x;
-//                    new_junction->loc()[1] = branches[1].front().y;
-//                    vertex_t junc_v = add_vertex(symbol_graph_);
-//                    new_junction->vertex_descriptor() = junc_v;
-//                    graph_nodes_[junc_v] = new_junction;
-//                    add_edge(u,
-//                             junc_v,
-//                             symbol_graph_);
-//                    
-//                    for (int k = 1; k < branches.size(); ++k) {
-//                        vector<RoadPt>& cur_branch = branches[k];
-//                        
-//                        new_road = new RoadSymbol;
-//                        cur_cum_length = 0.0f;
-//                        new_road->startState() = TERMINAL;
-//                        new_road->endState() = QUERY_Q;
-//                        new_road->center().clear();
-//                        
-//                        for (int l = 0; l < cur_branch.size(); ++l) {
-//                            RoadPt new_r_pt(cur_branch[l]);
-//                            new_road->center().push_back(new_r_pt);
-//                        }
-//                        
-//                        vertex_t u = add_vertex(symbol_graph_);
-//                        graph_nodes_[u] = new_road;
-//                        new_road->vertex_descriptor() = u;
-//                    }
-//                    
-//                    // find closest point
-//                    int max_count = 10;
-//                    int min_dist_idx = j;
-//                    float min_dist = 1e10;
-//                    float junc_x = branches[1].front().x;
-//                    float junc_y = branches[1].front().y;
-//                    int count = 0;
-//                    for(int k = j; k < road.size(); ++k){
-//                        Eigen::Vector2d vec(road[k].x - junc_x,
-//                                            road[k].y - junc_y);
-//                        float len = vec.norm();
-//                        if (min_dist < len) {
-//                            min_dist = len;
-//                            min_dist_idx = k;
-//                        }
-//                        
-//                        count++;
-//                        if (count > max_count) {
-//                            break;
-//                        }
-//                    }
-//                    
-//                    new_road = new RoadSymbol;
-//                    cur_cum_length = 0.0f;
-//                    new_road->startState() = TERMINAL;
-//                    new_road->endState() = QUERY_Q;
-//                    new_road->center().clear();
-//                    
-//                    while (j <= min_dist_idx) {
-//                        new_road->center().push_back(road[j]);
-//                        ++j;
-//                    }
-//                }
-//                else{
-//                    
-//                }
-//            }
-//            ++j;
-//        }
-       /// I added
-        
-        
-        /* I commented
-        vector<RoadPt> center_line;
-        for (int s = 0; s < pt_idx - 1; ++s) {
-            center_line.push_back(road[s]);
-            feature_vertices_.push_back(SceneConst::getInstance().normalize(road[s].x, road[s].y, Z_FEATURES));
-            feature_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::YELLOW));
-        }
-        
-        center_line.push_back(road[pt_idx]);
-        feature_vertices_.push_back(SceneConst::getInstance().normalize(road[pt_idx].x, road[pt_idx].y, Z_FEATURES));
-        feature_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::RED));
-        
-        float cur_cum_length = 0.0f;
-        for (int s = 1; s < center_line.size(); ++s) {
-            float delta_x = center_line[s].x - center_line[s-1].x;
-            float delta_y = center_line[s].y - center_line[s-1].y;
-            cur_cum_length += sqrt(delta_x*delta_x + delta_y*delta_y);
-        }
-        
-        if(cur_cum_length > 50.0f){
-            RoadPt& r_pt = center_line.back();
-            RoadPt junction_loc;
-            vector<vector<RoadPt> > branches;
-            set<int> candidate_point_set;
-            computeConsistentPointSet(radius,
-                                      trajectories_,
-                                      center_line,
-                                      candidate_point_set,
-                                      grow_backward);
+        bool INTERACTIVE_ROAD_GROWING_MODE = true;
+        if (INTERACTIVE_ROAD_GROWING_MODE) {
+            i_road = tmp_ % initial_roads_.size();
             
-            bool to_branch = branchPrediction(radius,
-                                              r_pt,
-                                              candidate_point_set,
-                                              trajectories_,
-                                              junction_loc,
-                                              branches);
-            
-            
-            // Visualization
-            for (set<int>::iterator pit = candidate_point_set.begin(); pit != candidate_point_set.end(); ++pit) {
-                PclPoint& pt = trajectories_->data()->at(*pit);
-               
-                points_to_draw_.push_back(SceneConst::getInstance().normalize(pt.x, pt.y, Z_DEBUG));
-                point_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::BLUE));
+            vector<RoadPt>& road = initial_roads_[i_road];
+            cout << "Current road: " << i_road <<", which has " << road.size() << " nodes" << endl;
+            if (road.size() < 2) {
+                tmp_++;
+                return true;
             }
             
-            if(to_branch){
-//                vector<RoadPt>& branch = branches[0];
-//                for(size_t s = 0; s < branch.size(); ++s){
-//                    feature_vertices_.push_back(SceneConst::getInstance().normalize(branch[s].x, branch[s].y, Z_DEBUG));
-//                    float score = branch[s].head / 100.0f;
-//                    Color c = ColorMap::getInstance().getJetColor(score);
-//                    
-//                    feature_colors_.push_back(c);
-//                }
-                
-//                for(size_t s = 0; s < branch.size(); ++s){
-//                    feature_vertices_.push_back(SceneConst::getInstance().normalize(branch[s].x, branch[s].y, Z_DEBUG));
-//                    feature_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::ORANGE));
-//                }
-                
-//                vector<RoadPt>& branch = branches[0];
-//                int k_edges = branch.size() / 2;
-//                for (size_t s = 0; s < k_edges; ++s) {
-//                    lines_to_draw_.push_back(SceneConst::getInstance().normalize(branch[2 * s].x, branch[2 * s].y, Z_DEBUG + 0.05f));
-//                    line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::RED));
-//                    
-//                    lines_to_draw_.push_back(SceneConst::getInstance().normalize(branch[2*s + 1].x, branch[2*s+1].y, Z_DEBUG + 0.05f));
-//                    line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::RED));
-//                }
-//                
-//                vector<RoadPt>& branch1 = branches[1];
-//                for(size_t s = 0; s < branch1.size(); ++s){
-//                    feature_vertices_.push_back(SceneConst::getInstance().normalize(branch1[s].x, branch1[s].y, Z_DEBUG));
-//                    feature_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::ORANGE));
-//                }
-//                
-//                vector<RoadPt>& branch2 = branches[2];
-//                k_edges = branch2.size() / 2;
-//                for (size_t s = 0; s < k_edges; ++s) {
-//                    lines_to_draw_.push_back(SceneConst::getInstance().normalize(branch2[2 * s].x, branch2[2 * s].y, Z_DEBUG + 0.05f));
-//                    line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::GREEN));
-//                    
-//                    lines_to_draw_.push_back(SceneConst::getInstance().normalize(branch2[2*s + 1].x, branch2[2*s+1].y, Z_DEBUG + 0.05f));
-//                    line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::GREEN));
-//                }
-                
-//                vector<RoadPt>& branch0 = branches[0];
-//                for (size_t s = 1; s < branch0.size(); ++s) {
-//                    lines_to_draw_.push_back(SceneConst::getInstance().normalize(branch0[s-1].x, branch0[s-1].y, Z_DEBUG + 0.05f));
-//                    line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::RED));
-//                    
-//                    lines_to_draw_.push_back(SceneConst::getInstance().normalize(branch0[s].x, branch0[s].y, Z_DEBUG + 0.05f));
-//                    line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::RED));
-//                }
+            /// I added
+            new_road = new RoadSymbol;
+            cur_cum_length = 0.0f;
+            new_road->startState() = QUERY_Q;
+            new_road->endState() = QUERY_Q;
+            
+            vertex_t u = add_vertex(symbol_graph_);
+            graph_nodes_[u] = new_road;
+            new_road->vertex_descriptor() = u;
+            
+            j = 0;
+        }
+        else{
+            bool grow_backward = false;
+            int pt_idx = tmp_;
+            int i_road = 0;
+            int cum_pt_count = 0;
+            while(true){
+                if (cum_pt_count + initial_roads_[i_road].size() > tmp_) {
+                    break;
+                }
+                else{
+                    cum_pt_count += initial_roads_[i_road].size();
+                    i_road++;
+                }
             }
-            else{
+            pt_idx = tmp_ - cum_pt_count;
+            
+            if (i_road > initial_roads_.size()) {
+                tmp_ = 0;
+                return true;
+            }
+            
+            vector<RoadPt> center_line;
+            vector<RoadPt>& road = initial_roads_[i_road];
+            
+            for (int s = 0; s < pt_idx - 1; ++s) {
+                center_line.push_back(road[s]);
+                feature_vertices_.push_back(SceneConst::getInstance().normalize(road[s].x, road[s].y, Z_FEATURES));
+                feature_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::YELLOW));
+            }
+            
+            center_line.push_back(road[pt_idx]);
+            feature_vertices_.push_back(SceneConst::getInstance().normalize(road[pt_idx].x, road[pt_idx].y, Z_FEATURES));
+            feature_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::RED));
+            
+            float cur_cum_length = 0.0f;
+            for (int s = 1; s < center_line.size(); ++s) {
+                float delta_x = center_line[s].x - center_line[s-1].x;
+                float delta_y = center_line[s].y - center_line[s-1].y;
+                cur_cum_length += sqrt(delta_x*delta_x + delta_y*delta_y);
+            }
+            
+            if(cur_cum_length > 50.0f){
+                RoadPt& r_pt = center_line.back();
+                RoadPt junction_loc;
+                vector<vector<RoadPt> > branches;
+                set<int> candidate_point_set;
+                map<int, bool> traj_aligned_with_road;
+                computeConsistentPointSet(trajectories_,
+                                          center_line,
+                                          candidate_point_set,
+                                          traj_aligned_with_road,
+                                          grow_backward);
                 
+                branchPrediction(r_pt,
+                                 candidate_point_set,
+                                 trajectories_,
+                                 junction_loc,
+                                 branches);
+                
+                
+                // Visualization
+                for (set<int>::iterator pit = candidate_point_set.begin(); pit != candidate_point_set.end(); ++pit) {
+                    PclPoint& pt = trajectories_->data()->at(*pit);
+                    
+                    points_to_draw_.push_back(SceneConst::getInstance().normalize(pt.x, pt.y, Z_DEBUG + 0.05f));
+                    point_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::BLUE));
+                }
+                
+                if(true){
+                    for (size_t i = 0; i < branches.size(); ++i) {
+                        vector<RoadPt>& branch = branches[i];
+                        if(branch.size() > 1){
+                            for(size_t s = 0; s < branch.size() - 1; ++s){
+                                lines_to_draw_.push_back(SceneConst::getInstance().normalize(branch[s].x, branch[s].y, Z_DEBUG + 0.05f));
+                                line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::RED));
+                                
+                                lines_to_draw_.push_back(SceneConst::getInstance().normalize(branch[s+1].x, branch[s+1].y, Z_DEBUG + 0.05f));
+                                line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::RED));
+                            }
+                        }
+                    }
+                    
+                    /*
+                    int simplified_pt_idx = branches.size() - 2;
+                    vector<RoadPt>& simplified_pt_branch = branches[simplified_pt_idx];
+                    for(size_t s = 0; s < simplified_pt_branch.size(); ++s){
+                        RoadPt& r_pt = simplified_pt_branch[s];
+                        feature_vertices_.push_back(SceneConst::getInstance().normalize(r_pt.x, r_pt.y, Z_DEBUG));
+                        feature_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::ORANGE));
+                    }
+                    vector<RoadPt>& last_branch = branches.back();
+                    int k = last_branch.size() / 2;
+                    for (size_t s = 0; s < k; ++s) {
+                        lines_to_draw_.push_back(SceneConst::getInstance().normalize(last_branch[2*s].x, last_branch[2*s].y, Z_DEBUG));
+                        line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::GREEN));
+                        
+                        lines_to_draw_.push_back(SceneConst::getInstance().normalize(last_branch[2*s+1].x, last_branch[2*s+1].y, Z_DEBUG));
+                        line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::GREEN));
+                    }
+                     */
+                }
             }
         }
-         
-         I commented */
-       
+        
         tmp_++;
         
         return true;
     }
     
+    // Below is NON-DEBUG mode
     for (size_t i = 0; i < initial_roads_.size(); ++i) {
         vector<RoadPt>& road = initial_roads_[i];
         if (road.size() < 2) {
@@ -2483,29 +2416,29 @@ bool RoadGenerator::addInitialRoad(){
         int j = 0;
         while(j < road.size()){
             RoadPt& r_pt = road[j];
-            if (new_road->center().size() > 0) {
+            if (new_road->centerLine().size() > 0) {
                 // increase cur_cum_length
-                RoadPt& last_pt = new_road->center().back();
+                const RoadPt& last_pt = new_road->centerLine().back();
                 float delta_x = r_pt.x - last_pt.x;
                 float delta_y = r_pt.y - last_pt.y;
                 cur_cum_length += sqrt(delta_x*delta_x + delta_y*delta_y);
             }
             
-            new_road->center().push_back(r_pt);
+            new_road->addRoadPtAtEnd(r_pt);
             
             if(cur_cum_length > 100.0f){
                 RoadPt junction_loc;
                 vector<vector<RoadPt> > branches;
                 set<int> candidate_point_set;
-                computeConsistentPointSet(radius,
-                                          trajectories_,
-                                          new_road->center(),
+                map<int, bool> traj_aligned_with_road;
+                computeConsistentPointSet(trajectories_,
+                                          new_road->centerLine(),
                                           candidate_point_set,
+                                          traj_aligned_with_road,
                                           false);
                 
-                bool to_branch = branchPrediction(radius,
-                                                  r_pt,
-                                                  candidate_point_set,
+                bool to_branch = branchPrediction(r_pt,
+                                    candidate_point_set,
                                                   trajectories_,
                                                   junction_loc,
                                                   branches);
@@ -2551,14 +2484,13 @@ bool RoadGenerator::addInitialRoad(){
                             cur_cum_length = 0.0f;
                             new_road->startState() = TERMINAL;
                             new_road->endState() = QUERY_Q;
-                            new_road->center().clear();
                             vertex_t u = add_vertex(symbol_graph_);
                             graph_nodes_[u] = new_road;
                             new_road->vertex_descriptor() = u;
                             
                             for (int l = start_idx; l < first_branch.size(); ++l) {
                                 RoadPt new_r_pt(first_branch[l]);
-                                new_road->center().push_back(new_r_pt);
+                                new_road->addRoadPtAtEnd(new_r_pt);
                             }
                         }
                         
@@ -2569,14 +2501,13 @@ bool RoadGenerator::addInitialRoad(){
                             cur_cum_length = 0.0f;
                             new_road->startState() = TERMINAL;
                             new_road->endState() = QUERY_Q;
-                            new_road->center().clear();
                             vertex_t u = add_vertex(symbol_graph_);
                             graph_nodes_[u] = new_road;
                             new_road->vertex_descriptor() = u;
                             
                             for (int l = 0; l < cur_branch.size(); ++l) {
                                 RoadPt new_r_pt(cur_branch[l]);
-                                new_road->center().push_back(new_r_pt);
+                                new_road->addRoadPtAtEnd(new_r_pt);
                             }
                         }
                         
@@ -2604,19 +2535,18 @@ bool RoadGenerator::addInitialRoad(){
                         cur_cum_length = 0.0f;
                         new_road->startState() = TERMINAL;
                         new_road->endState() = QUERY_Q;
-                        new_road->center().clear();
                         vertex_t u = add_vertex(symbol_graph_);
                         graph_nodes_[u] = new_road;
                         new_road->vertex_descriptor() = u;
                         
                         while (j <= min_dist_idx) {
-                            new_road->center().push_back(road[j]);
+                            new_road->addRoadPtAtEnd(road[j]);
                             ++j;
                         }
                     }
                 }
                 else{
-                    new_road->center().push_back(road[j]);
+                    new_road->addRoadPtAtEnd(road[j]);
                 }
             }
             ++j;
@@ -3177,6 +3107,204 @@ void RoadGenerator::generateRoadFromPoints(vector<int>& candidate_pt_idxs,
             new_pt.is_oneway = is_oneway;
             new_pt.n_lanes = nxt_pt.n_lanes;
             road.push_back(new_pt);
+        }
+    }
+}
+
+void RoadGenerator::updateGPSPointsOnRoad(RoadSymbol* road){
+    if(road == NULL || trajectories_ == NULL){
+        return;
+    }
+    
+    const vector<RoadPt>& center_line = road->centerLine();
+    vector<bool>&   center_pt_visited = road->centerPtVisited();
+    
+    if (center_line.size() < 2) {
+        cout << "WARNING from computePointsOnRoad: center_line size less than 2" << endl;
+        return;
+    }
+    
+    if (center_line.size() != center_pt_visited.size()) {
+        cout << "ERROR from computePointsOnRoad: center_line and center_pt_visited have different sizes." << endl;
+        exit(1);
+        return;
+    }
+    
+    float heading_threshold = 10.0f; // in degrees
+    float gps_sigma = Parameters::getInstance().gpsSigma();
+    
+    float search_radius = Parameters::getInstance().searchRadius();
+    
+    for (size_t i = 0; i < center_line.size(); ++i) {
+        if (center_pt_visited[i]) {
+            // The center_line point has been visited before, no need to update again.
+            continue;
+        }
+        
+        center_pt_visited[i] = true;
+        
+        PclPoint pt;
+        pt.setCoordinate(center_line[i].x, center_line[i].y, 0.0f);
+        
+        const RoadPt& r_pt = center_line[i];
+        
+        Eigen::Vector3d dir = headingTo3dVector(r_pt.head);
+        
+        vector<int> k_indices;
+        vector<float> k_dist_sqrs;
+        trajectories_->tree()->radiusSearch(pt,
+                                            search_radius,
+                                            k_indices,
+                                            k_dist_sqrs);
+        
+        for (size_t s = 0; s < k_indices.size(); ++s) {
+            int nb_pt_idx = k_indices[s];
+            if(road->containsPt(nb_pt_idx)){
+                // Already added the point, skip
+                continue;
+            }
+            
+            PclPoint& nb_pt = trajectories_->data()->at(nb_pt_idx);
+            
+            Eigen::Vector3d vec(nb_pt.x - r_pt.x,
+                                nb_pt.y - r_pt.y,
+                                0.0f);
+            float parallel_dist = abs(dir.cross(vec)[2]);
+            
+            float delta_heading = abs(deltaHeading1MinusHeading2(nb_pt.head, r_pt.head));
+            
+            if (road->isOneway()) {
+                if (delta_heading > heading_threshold) {
+                    continue;
+                }
+                
+                parallel_dist -= 0.5f * r_pt.n_lanes * LANE_WIDTH;
+                if(parallel_dist < 0){
+                    parallel_dist = 0.0f;
+                }
+                
+                float probability = exp(-1.0f * parallel_dist * parallel_dist / 2.0f / gps_sigma / gps_sigma);
+                road->insertPt(k_indices[s],
+                               nb_pt.t,
+                               probability,
+                               nb_pt.id_trajectory,
+                               true);
+            }
+            else{
+                float bwd_delta_heading = 180.0f - delta_heading;
+                parallel_dist -= 0.5f * r_pt.n_lanes * LANE_WIDTH;
+                if(parallel_dist < 0){
+                    parallel_dist = 0.0f;
+                }
+                
+                float probability = exp(-1.0f * parallel_dist * parallel_dist / 2.0f / gps_sigma / gps_sigma);
+                if(delta_heading < heading_threshold){
+                    road->insertPt(k_indices[s],
+                                   nb_pt.t,
+                                   probability,
+                                   nb_pt.id_trajectory,
+                                   true);
+                }
+                
+                if(bwd_delta_heading < heading_threshold){
+                    road->insertPt(k_indices[s],
+                                   nb_pt.t,
+                                   probability,
+                                   nb_pt.id_trajectory,
+                                   false);
+                }
+            }
+        }
+    }
+}
+
+void RoadGenerator::getConsistentPointSetForRoad(RoadSymbol* road,
+                                                 set<int>& candidate_point_set,
+                                                 bool backward){
+    if(road == NULL || trajectories_ == NULL){
+        return;
+    }
+    
+    candidate_point_set.clear();
+    
+    Parameters& params = Parameters::getInstance();
+    
+    float MAX_DIST_TO_ORIGIN        = params.branchPredictorExtensionRatio() * params.searchRadius();
+    float MAX_T_EXTENSION         = params.branchPredictorMaxTExtension(); // in seconds. Include points that extend current point by at most this value.
+    
+    updateGPSPointsOnRoad(road);
+    
+    PclPoint orig_pt;
+    if(backward){
+        orig_pt.setCoordinate(road->centerLine().front().x,
+                              road->centerLine().front().y,
+                              0.0f);
+        orig_pt.head = floor(road->centerLine().front().head);
+    }
+    else{
+        orig_pt.setCoordinate(road->centerLine().back().x,
+                              road->centerLine().back().y,
+                              0.0f);
+        orig_pt.head = floor(road->centerLine().back().head);
+    }
+    
+    Eigen::Vector2d orig_dir = headingTo2dVector(orig_pt.head);
+    
+    // Search all possible points
+    vector<int> k_indices;
+    vector<float> k_dist_sqrs;
+    trajectories_->tree()->radiusSearch(orig_pt,
+                                        MAX_DIST_TO_ORIGIN,
+                                        k_indices,
+                                        k_dist_sqrs);
+    
+    for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
+        PclPoint& nb_pt = trajectories_->data()->at(*it);
+        
+        Eigen::Vector2d vec_to_orig(nb_pt.x - orig_pt.x,
+                                    nb_pt.y - orig_pt.y);
+        
+        float dot_value = orig_dir.dot(vec_to_orig);
+        
+        if (backward) {
+            if (dot_value > 1.0f) {
+                continue;
+            }
+        }
+        else{
+            if (dot_value < -1.0f) {
+                continue;
+            }
+        }
+        
+        // Check if the point traj is in covered_trajs.
+        pair<bool, bool> road_has_this_traj = road->containsTraj(nb_pt.id_trajectory);
+        if (road_has_this_traj.first) {
+            float delta_t;
+            if(road_has_this_traj.second){
+                if(backward){
+                    delta_t = road->trajMinTs().at(nb_pt.id_trajectory) - nb_pt.t;
+                }
+                else{
+                    delta_t = nb_pt.t - road->trajMaxTs().at(nb_pt.id_trajectory);
+                }
+            }
+            else{
+                if(backward){
+                    delta_t = nb_pt.t - road->trajMaxTs().at(nb_pt.id_trajectory);
+                }
+                else{
+                    delta_t = road->trajMinTs().at(nb_pt.id_trajectory) - nb_pt.t;
+                }
+            }
+
+            if (delta_t < 0) {
+                continue;
+            }
+            
+            if (delta_t < MAX_T_EXTENSION) {
+                candidate_point_set.insert(*it);
+            }
         }
     }
 }

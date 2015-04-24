@@ -2,6 +2,7 @@
 #include <iomanip>
 
 #include "common.h"
+#include <pcl/search/impl/flann_search.hpp>
 #include <QDebug>
 
 namespace Common
@@ -31,6 +32,12 @@ namespace Common
         
         return;
     }
+}
+
+float roadPtDistance(const RoadPt& p1, const RoadPt& p2){
+    Eigen::Vector2d vec(p1.x - p2.x,
+                        p1.y - p2.y);
+    return vec.norm();
 }
 
 void findMaxElement(const vector<float> hist, int& max_idx){
@@ -456,6 +463,400 @@ void smoothCurve(vector<RoadPt>& center_line, bool fix_front){
                 break;
             }
         }
+    }
+}
+
+void sampleRoadSkeletonPoints(float search_radius,
+                              float heading_threshold,
+                              float delta_perp_bin,
+                              float sigma_perp_s,
+                              float delta_head_bin,
+                              float sigma_head_s,
+                              int   min_n,
+                              bool  is_oneway,
+                              const PclPointCloud::Ptr& points,
+                              const PclSearchTree::Ptr& search_tree,
+                              PclPointCloud::Ptr& new_points,
+                              PclSearchTree::Ptr& new_search_tree){
+    if (search_radius > 250.0f) {
+        cout << "Warning: search radius " << search_radius << "m is too big in computeRoadCenterAt()." << endl;
+        return;
+    }
+    
+    if(delta_perp_bin < 1e-3){
+        cout << "ERROR: perpendicular delta_perp_bin" << delta_perp_bin << "m cannot be negative or too small in sampleRoadSkeletonPoints() ." << endl;
+        return;
+    }
+    
+    int N_PERP_BINS = ceil(2.0f * search_radius / delta_perp_bin);
+    
+    if (N_PERP_BINS > 1000) {
+        cout << "Warning: delta_perp_bin = " << delta_perp_bin << "m might be too small with search radius = " << search_radius << "m in sampleRoadSkeletonPoints(). This will lead to " << N_PERP_BINS << " bins in histogram" << endl;
+        return;
+    }
+    
+    int perp_half_window = ceil(sigma_perp_s / delta_perp_bin);
+    
+    int N_HEAD_BINS = ceil(360.0f / delta_head_bin);
+    
+    // Sample points to speed up
+    PclPointCloud::Ptr t_points(new PclPointCloud);
+    PclSearchTree::Ptr t_search_tree(new pcl::search::FlannSearch<PclPoint>(false));
+    
+    vector<bool> pt_covered(points->size(), false);
+    for (size_t i = 0; i < points->size(); ++i) {
+        if (pt_covered[i]) {
+            continue;
+        }
+        
+        PclPoint pt = points->at(i);
+        vector<int> k_indices;
+        vector<float> k_dist_sqrs;
+        search_tree->radiusSearch(pt,
+                                  5.0f,
+                                  k_indices,
+                                  k_dist_sqrs);
+        
+        float cum_x = 0.0f;
+        float cum_y = 0.0f;
+        int n_count = 0;
+        for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
+            PclPoint& nb_pt = points->at(*it);
+            float delta_heading = abs(deltaHeading1MinusHeading2(nb_pt.head, pt.head));
+            if (delta_heading < 0.5f * heading_threshold) {
+                cum_x += nb_pt.x;
+                cum_y += nb_pt.y;
+                n_count++;
+                pt_covered[*it] = true;
+            }
+        }
+        if (n_count > 0) {
+            PclPoint new_pt = pt;
+            new_pt.x = cum_x / n_count;
+            new_pt.y = cum_y / n_count;
+            new_pt.id_sample = n_count;
+            
+            vector<int> t_inds;
+            vector<float> t_dsqrs;
+            search_tree->radiusSearch(new_pt,
+                                      10.0f,
+                                      t_inds,
+                                      t_dsqrs);
+            if (t_inds.size() >= 2) {
+                t_points->push_back(new_pt);
+            }
+        }
+    }
+   
+    if (t_points->size() == 0) {
+        return;
+    }
+    
+    t_search_tree->setInputCloud(t_points);
+    
+    // Make a tmp point cloud to corresponding road center
+    PclPointCloud::Ptr tmp_points(new PclPointCloud);
+    PclSearchTree::Ptr tmp_search_tree(new pcl::search::FlannSearch<PclPoint>(false));
+    
+    for (size_t i = 0; i < t_points->size(); ++i) {
+        PclPoint& pt = t_points->at(i);
+       
+        Eigen::Vector3d pt_dir = headingTo3dVector(pt.head);
+        
+        vector<int> k_indices;
+        vector<float> k_dist_sqrs;
+        t_search_tree->radiusSearch(pt,
+                                    0.6f * search_radius,
+                                    k_indices,
+                                    k_dist_sqrs);
+        
+        // Vote in the perpendicular direction
+        vector<float> perp_votes(N_PERP_BINS, 0.0f);
+        vector<float> head_votes(N_HEAD_BINS, 0.0f);
+        int n_vote_pts = 0;
+        for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
+            PclPoint& nb_pt = t_points->at(*it);
+            
+            float d_heading = deltaHeading1MinusHeading2(nb_pt.head, pt.head);
+            float delta_heading = abs(d_heading);
+            
+            if (!is_oneway && delta_heading > 90.0f) {
+                delta_heading = 180.0f - delta_heading;
+            }
+            
+            // heading votes
+            if(k_dist_sqrs[it - k_indices.begin()] < 100.0f){
+                if (delta_heading < 3.0f * heading_threshold) {
+                    // vote for heading
+                    int modified_head = nb_pt.head;
+                    if (!is_oneway && abs(d_heading) > 90.0f) {
+                        modified_head = (modified_head + 180) % 360;
+                    }
+                    int head_bin_idx = floor(static_cast<float>(modified_head) / delta_head_bin + 0.5f);
+                    for (int k = head_bin_idx-1; k <= head_bin_idx+1; ++k) {
+                        int corresponding_k = k;
+                        if (k < 0) {
+                            corresponding_k += N_HEAD_BINS;
+                        }
+                        if (corresponding_k >= N_HEAD_BINS) {
+                            corresponding_k %= N_HEAD_BINS;
+                        }
+                        
+                        float head_bin_center = (corresponding_k + 0.5f) * delta_head_bin;
+                        float d_head = head_bin_center - modified_head;
+                        head_votes[corresponding_k] += nb_pt.id_sample * exp(-1.0f * d_head * d_head / 2.0f / delta_head_bin / delta_head_bin);
+                    }
+                }
+            }
+            
+            if (delta_heading < heading_threshold) {
+                // Perpendicular voting
+                Eigen::Vector3d vec(nb_pt.x - pt.x,
+                                    nb_pt.y - pt.y,
+                                    0.0f);
+                float perp_proj = pt_dir.cross(vec)[2];
+                int perp_bin_idx = floor((perp_proj + search_radius) / delta_perp_bin + 0.5f);
+                
+                if (perp_bin_idx < 0 || perp_bin_idx >= N_PERP_BINS) {
+                    continue;
+                }
+                
+                n_vote_pts += nb_pt.id_sample;
+                
+                float base_vote = exp(-1.0f * perp_proj * perp_proj / 2.0f / 10.0f / 10.0f);
+                
+                for (int s = perp_bin_idx - perp_half_window; s <= perp_bin_idx + perp_half_window; ++s) {
+                    if (s < 0 || s >= N_PERP_BINS) {
+                        continue;
+                    }
+                    
+                    float delta_bin_center = perp_proj + search_radius - (s + 0.5f) * delta_perp_bin;
+                    
+                    perp_votes[s] += nb_pt.id_sample * exp(-1.0f * delta_bin_center * delta_bin_center / 2.0f / sigma_perp_s / sigma_perp_s) * base_vote;
+                }
+            }
+        }
+        
+        if(n_vote_pts >= min_n){
+            int head_max_idx = -1;
+            findMaxElement(head_votes, head_max_idx);
+            int perp_max_idx = -1;
+            findMaxElement(perp_votes, perp_max_idx);
+            if (head_max_idx != -1 && perp_max_idx != -1) {
+                float max_perp_dist = (perp_max_idx + 0.5f) * delta_perp_bin - search_radius;
+                int max_head = floor((head_max_idx + 0.5f) * delta_head_bin);
+                float d_head = abs(deltaHeading1MinusHeading2(pt.head, max_head));
+                if (!is_oneway && d_head > 90.0f) {
+                    d_head = 180.0f - d_head;
+                }
+                
+                if (d_head < heading_threshold) {
+                    Eigen::Vector2d perp_dir(-pt_dir[1], pt_dir[0]);
+                    Eigen::Vector2d new_loc(pt.x, pt.y);
+                    new_loc += max_perp_dist * perp_dir;
+                    PclPoint new_pt = pt;
+                    new_pt.x = new_loc.x();
+                    new_pt.y = new_loc.y();
+                    new_pt.head = max_head;
+                    tmp_points->push_back(new_pt);
+                }
+            }
+        }
+    }
+    
+    tmp_search_tree->setInputCloud(tmp_points);
+    
+    // Sample the tmp_points
+    new_points->clear();
+    vector<bool> is_covered(tmp_points->size(), false);
+    for (size_t i = 0; i < tmp_points->size(); ++i) {
+        if (is_covered[i]) {
+            continue;
+        }
+        
+        PclPoint& pt = tmp_points->at(i);
+        float pt_speed = pt.speed / 100.0f;
+        if(pt_speed < 1.0f){
+            continue;
+        }
+        
+        vector<int> k_indices;
+        vector<float> k_dist_sqrs;
+        tmp_search_tree->radiusSearch(pt, 5.0f, k_indices, k_dist_sqrs);
+        // Mark corresponding nearby points
+        float cum_x = 0.0f;
+        float cum_y = 0.0f;
+        int n_count = 0;
+        for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
+            PclPoint& nearby_pt = tmp_points->at(*it);
+            float delta_heading = abs(deltaHeading1MinusHeading2(nearby_pt.head, pt.head));
+            if(!is_oneway && delta_heading > 90.0f){
+                delta_heading = 180.0f - delta_heading;
+            }
+            
+            if (delta_heading < 7.5f) {
+                ++n_count;
+                cum_x += nearby_pt.x;
+                cum_y += nearby_pt.y;
+                is_covered[*it] = true;
+            }
+        }
+        
+        if (n_count > 0) {
+            cum_x /= n_count;
+            cum_y /= n_count;
+            
+            pt.x = cum_x;
+            pt.y = cum_y;
+            new_points->push_back(pt);
+        }
+    }
+    
+    if (new_points->size() > 0) {
+        new_search_tree->setInputCloud(new_points);
+    }
+}
+
+void adjustRoadPtHeading(RoadPt& r_pt,
+                         PclPointCloud::Ptr& points,
+                         PclSearchTree::Ptr& search_tree,
+                         float search_radius,
+                         float heading_threshold,
+                         float delta_bin,
+                         bool pt_id_sample_store_weight){
+    
+    int n_heading_bins = ceil(360.0f / delta_bin);
+    
+    PclPoint pt;
+    pt.setCoordinate(r_pt.x, r_pt.y, 0.0f);
+    
+    vector<float> votes(n_heading_bins, 0.0f);
+    vector<int> k_indices;
+    vector<float> k_dist_sqrs;
+    search_tree->radiusSearch(pt, search_radius, k_indices, k_dist_sqrs);
+    for(vector<int>::iterator vit = k_indices.begin(); vit != k_indices.end(); ++vit){
+        PclPoint& nb_pt = points->at(*vit);
+        float d_heading = deltaHeading1MinusHeading2(nb_pt.head, r_pt.head);
+        if (abs(d_heading) < heading_threshold) {
+            int bin_idx = floor(nb_pt.head / delta_bin);
+            for (int k = bin_idx - 1; k < bin_idx + 1; ++k) {
+                int corresponding_k = k;
+                if (k < 0) {
+                    corresponding_k += n_heading_bins;
+                }
+                if (k >= n_heading_bins) {
+                    corresponding_k %= n_heading_bins;
+                }
+                
+                float bin_center = (corresponding_k + 0.5f) * delta_bin;
+                float d = bin_center - r_pt.head;
+                if(pt_id_sample_store_weight){
+                    votes[corresponding_k] += nb_pt.id_sample * exp(-1.0f * d * d / 2.0f / delta_bin / delta_bin);
+                }
+                else{
+                    votes[corresponding_k] += exp(-1.0f * d * d / 2.0f / delta_bin / delta_bin);
+                }
+            }
+        }
+    }
+    
+    int max_idx = -1;
+    findMaxElement(votes, max_idx);
+    if (max_idx != -1) {
+        r_pt.head = floor((max_idx + 0.5f) * delta_bin);
+    }
+}
+
+void adjustRoadCenterAt(RoadPt& r_pt,
+                        PclPointCloud::Ptr& points,
+                        PclSearchTree::Ptr& search_tree,
+                        float search_radius,
+                        float heading_threshold,
+                        float delta_bin,
+                        float sigma_s,
+                        bool pt_id_sample_store_weight){
+    /*
+        This function projects qualified nearby points to the perpendicular line to pt.head, and compute a histogram of distribution. The road center is the maximum of that distribution.
+     */
+    
+    PclPoint pt;
+    pt.setCoordinate(r_pt.x, r_pt.y, 0.0f);
+    pt.head = r_pt.head;
+    
+    if (search_radius > 250.0f) {
+        cout << "Warning: search radius " << search_radius << "m is too big in computeRoadCenterAt()." << endl;
+        return;
+    }
+    
+    if(delta_bin < 1e-3){
+        cout << "ERROR: delta_bin " << delta_bin << "m cannot be negative or too small in computeRoadCenterAt() ." << endl;
+        return;
+    }
+    
+    int N_BINS = ceil(2.0f * search_radius / delta_bin);
+    
+    if (N_BINS > 1000) {
+        cout << "Warning: delta_bin = " << delta_bin << "m might be too small with search radius = " << search_radius << "m in computeRoadCenterAt(). This will lead to " << N_BINS << " bins in histogram" << endl;
+        return;
+    }
+    
+    int half_window = ceil(sigma_s / delta_bin);
+    
+    Eigen::Vector3d pt_dir = headingTo3dVector(pt.head);
+    Eigen::Vector3d pt_perp_dir(-pt_dir[1], pt_dir[0], 0.0f);
+    
+    vector<int> k_indices;
+    vector<float> k_dist_sqrs;
+    
+    search_tree->radiusSearch(pt, search_radius, k_indices, k_dist_sqrs);
+    
+    vector<float> votes(N_BINS, 0.0f);
+    
+    for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
+        PclPoint& nb_pt = points->at(*it);
+        float delta_heading = abs(deltaHeading1MinusHeading2(nb_pt.head, pt.head));
+        
+        if (!r_pt.is_oneway && delta_heading > 90.0f) {
+            delta_heading = 180.0f - delta_heading;
+        }
+        
+        if (delta_heading < heading_threshold) {
+            Eigen::Vector3d vec(nb_pt.x - pt.x,
+                                nb_pt.y - pt.y,
+                                0.0f);
+            float perp_proj = pt_dir.cross(vec)[2];
+            int bin_idx = floor((perp_proj + search_radius) / delta_bin);
+            
+            if (bin_idx < 0 || bin_idx >= N_BINS) {
+                continue;
+            }
+            
+            for (int s = bin_idx - half_window; s <= bin_idx + half_window; ++s) {
+                if (s < 0 || s >= N_BINS) {
+                    continue;
+                }
+                
+                float delta_bin_center = perp_proj + search_radius - s * delta_bin;
+                
+                if (pt_id_sample_store_weight) {
+                    votes[s] += nb_pt.id_sample * exp(-1.0f * delta_bin_center * delta_bin_center / 2.0f / sigma_s / sigma_s);
+                }
+                else{
+                    votes[s] += exp(-1.0f * delta_bin_center * delta_bin_center / 2.0f / sigma_s / sigma_s);
+                }
+            }
+        }
+    }
+    
+    int max_idx = -1;
+    findMaxElement(votes, max_idx);
+    
+    if(max_idx != -1){
+        float avg_perp_dist = (max_idx + 0.5f) * delta_bin - search_radius;
+        Eigen::Vector2d perp_dir_2d(pt_perp_dir.x(), pt_perp_dir.y());
+        Eigen::Vector2d loc = avg_perp_dist * perp_dir_2d;
+        r_pt.x += loc.x();
+        r_pt.y += loc.y();
     }
 }
 

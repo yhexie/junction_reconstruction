@@ -50,7 +50,8 @@ enum QueryQLabel{
 
 void computePointsOnRoad(const vector<RoadPt>& center_line,
                          set<int>& covered_pts,
-                         map<int, set<int> >& covered_trajs,
+                         set<int>& covered_trajs,
+                         map<int, bool>& aligned_with_road,
                          Trajectories* trajectories);
 
 void computeQueryInitFeatureAt(float radius,
@@ -63,10 +64,10 @@ void trainQueryInitClassifier(vector<query_init_sample_type>& samples,
                                  vector<int>& labels,
                                  query_init_decision_function& df);
 
-void computeConsistentPointSet(float radius,
-                               Trajectories* trajectories,
-                               vector<RoadPt>& center_line,
+void computeConsistentPointSet(Trajectories* trajectories,
+                               const vector<RoadPt>& center_line,
                                set<int>& candidate_point_set,
+                               map<int, bool>& traj_aligned_with_road,
                                bool grow_backward = false);
 
 bool computeQueryQFeatureAt(float radius,
@@ -99,26 +100,25 @@ float optimizeGrowModel(vector<float>& xs,
                        PclPointCloud::Ptr& points,
                        PclSearchTree::Ptr& search_tree);
 
-float growModelFitting(RoadPt& start_point,
-                       PclPointCloud::Ptr& points,
-                       PclSearchTree::Ptr& search_tree,
-                       vector<RoadPt>& extension,
-                       bool grow_backward = false);
+//float growModelFitting(RoadPt& start_point,
+//                       PclPointCloud::Ptr& points,
+//                       PclSearchTree::Ptr& search_tree,
+//                       vector<RoadPt>& extension,
+//                       bool grow_backward = false);
 
-float splitModelFitting(RoadPt& start_point,
-                        PclPointCloud::Ptr& points,
-                        PclSearchTree::Ptr& search_tree,
-                        vector<vector<RoadPt> >& branches,
-                        bool grow_backward = false);
+float branchFitting(RoadPt& start_point,
+                    PclPointCloud::Ptr& points,
+                    PclSearchTree::Ptr& search_tree,
+                    Trajectories*       trajectories,
+                    vector<vector<RoadPt> >& branches,
+                    bool grow_backward = false);
 
-//float crossModelFitting(RoadPt& start_point,
-//                        PclPointCloud::Ptr& points,
-//                        PclSearchTree::Ptr& search_tree,
-//                        vector<RoadPt>& extension,
-//                        bool grow_backward);
+void traceBranches(RoadPt& start_point,
+                   PclPointCloud::Ptr& points,
+                   PclSearchTree::Ptr& search_tree,
+                   vector<vector<RoadPt> >& branches);
 
-bool branchPrediction(float               search_radius,
-                      RoadPt&             start_point,
+bool branchPrediction(RoadPt&             start_point,
                       set<int>&           candidate_set,
                       Trajectories*       trajectories,
                       RoadPt&             junction_loc,
