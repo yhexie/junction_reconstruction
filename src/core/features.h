@@ -106,6 +106,12 @@ float optimizeGrowModel(vector<float>& xs,
 //                       vector<RoadPt>& extension,
 //                       bool grow_backward = false);
 
+void tensor_decomposition(const Eigen::Matrix2d& T,
+                          Eigen::Vector2d& e1,
+                          Eigen::Vector2d& e2,
+                          double& lambda1,
+                          double& lambda2);
+
 float branchFitting(RoadPt& start_point,
                     PclPointCloud::Ptr& points,
                     PclSearchTree::Ptr& search_tree,

@@ -9,7 +9,7 @@
 #include "road_generator.h"
 #include <fstream>
 #include <ctime>
-#include "tensor_voting.h"
+//#include "tensor_voting.h"
 #include <algorithm>
 
 #include <boost/graph/graph_traits.hpp>
@@ -26,6 +26,8 @@
 #include <opengm/inference/messagepassing/messagepassing.hxx>
 #include <opengm/inference/gibbs.hxx>
 #pragma clang diagnostic pop
+
+using namespace Eigen;
 
 void polygonalFitting(vector<Vertex>& pts,
                       vector<Vertex>& results,
@@ -2084,39 +2086,67 @@ void RoadGenerator::tmpFunc(){
                 lines_to_draw_.clear();
                 line_colors_.clear();
                 
-                for (set<int>::iterator pit = candidate_point_set.begin(); pit != candidate_point_set.end(); ++pit) {
-                    PclPoint& pt = trajectories_->data()->at(*pit);
-                    
-                    points_to_draw_.push_back(SceneConst::getInstance().normalize(pt.x, pt.y, Z_DEBUG));
-                    point_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::BLUE));
+//                for (set<int>::iterator pit = candidate_point_set.begin(); pit != candidate_point_set.end(); ++pit) {
+//                    PclPoint& pt = trajectories_->data()->at(*pit);
+//                    
+//                    points_to_draw_.push_back(SceneConst::getInstance().normalize(pt.x, pt.y, Z_DEBUG));
+//                    point_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::BLUE));
+//                }
+                
+                vector<RoadPt>& branch = branches[0];
+                for(size_t s = 0; s < branch.size(); ++s){
+                    RoadPt& r_pt = branch[s];
+                    float c_value = static_cast<float>(r_pt.n_lanes) / 100.0f;
+                    points_to_draw_.push_back(SceneConst::getInstance().normalize(r_pt.x, r_pt.y, Z_DEBUG+0.05f));
+                    point_colors_.push_back(ColorMap::getInstance().getJetColor(c_value));
                 }
                 
-                int simplified_pt_idx = 0;
-                vector<RoadPt>& simplified_pt_branch = branches[simplified_pt_idx];
-                for(size_t s = 0; s < simplified_pt_branch.size(); ++s){
-                    RoadPt& r_pt = simplified_pt_branch[s];
-                    feature_vertices_.push_back(SceneConst::getInstance().normalize(r_pt.x, r_pt.y, Z_DEBUG));
-                    feature_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::ORANGE));
-                }
-                vector<RoadPt>& last_branch = branches[simplified_pt_idx+1];
-                int k = last_branch.size() / 2;
-                for (size_t s = 0; s < k; ++s) {
-                    lines_to_draw_.push_back(SceneConst::getInstance().normalize(last_branch[2*s].x, last_branch[2*s].y, Z_DEBUG));
-                    line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::GREEN));
-                    
-                    lines_to_draw_.push_back(SceneConst::getInstance().normalize(last_branch[2*s+1].x, last_branch[2*s+1].y, Z_DEBUG));
-                    line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::GREEN));
-                }
+//                int simplified_pt_idx = 0;
+//                vector<RoadPt>& simplified_pt_branch = branches[simplified_pt_idx];
+//                for(size_t s = 0; s < simplified_pt_branch.size(); ++s){
+//                    RoadPt& r_pt = simplified_pt_branch[s];
+//                    feature_vertices_.push_back(SceneConst::getInstance().normalize(r_pt.x, r_pt.y, Z_DEBUG));
+//                    feature_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::ORANGE));
+//                }
+//                vector<RoadPt>& last_branch = branches[simplified_pt_idx+1];
+//                int k = last_branch.size() / 2;
+//                for (size_t s = 0; s < k; ++s) {
+//                    lines_to_draw_.push_back(SceneConst::getInstance().normalize(last_branch[2*s].x, last_branch[2*s].y, Z_DEBUG));
+//                    line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::GREEN));
+//                    
+//                    lines_to_draw_.push_back(SceneConst::getInstance().normalize(last_branch[2*s+1].x, last_branch[2*s+1].y, Z_DEBUG));
+//                    line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::GREEN));
+//                }
                 
                 if (branches.size() > 2) {
                     vector<RoadPt>& last_branch = branches[2];
                     int k = last_branch.size() / 2;
                     for (size_t s = 0; s < k; ++s) {
-                        lines_to_draw_.push_back(SceneConst::getInstance().normalize(last_branch[2*s].x, last_branch[2*s].y, Z_DEBUG+0.05f));
-                        line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::RED));
+                        bool opp_dir = false;
+                        float d_h1 = abs(deltaHeading1MinusHeading2(r_pt.head, last_branch[2*s].head));
+                        if (d_h1 > 150.0f) {
+                            opp_dir = true;
+                        }
                         
-                        lines_to_draw_.push_back(SceneConst::getInstance().normalize(last_branch[2*s+1].x, last_branch[2*s+1].y, Z_DEBUG+0.05f));
-                        line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::RED));
+                        float d_h2 = abs(deltaHeading1MinusHeading2(r_pt.head, last_branch[2*s+1].head));
+                        if (d_h2 > 150.0f) {
+                            opp_dir = true;
+                        }
+                        
+                        if (opp_dir) {
+                            lines_to_draw_.push_back(SceneConst::getInstance().normalize(last_branch[2*s].x, last_branch[2*s].y, Z_DEBUG+0.05f));
+                            line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::RED));
+                            
+                            lines_to_draw_.push_back(SceneConst::getInstance().normalize(last_branch[2*s+1].x, last_branch[2*s+1].y, Z_DEBUG+0.05f));
+                            line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::RED));
+                        }
+                        else{
+                            lines_to_draw_.push_back(SceneConst::getInstance().normalize(last_branch[2*s].x, last_branch[2*s].y, Z_DEBUG+0.05f));
+                            line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::PINK));
+                            
+                            lines_to_draw_.push_back(SceneConst::getInstance().normalize(last_branch[2*s+1].x, last_branch[2*s+1].y, Z_DEBUG+0.05f));
+                            line_colors_.push_back(ColorMap::getInstance().getNamedColor(ColorMap::PINK));
+                        }
                     }
                 }
                 
@@ -4993,4 +5023,5 @@ void RoadGenerator::cleanUp(){
     }
     
     graph_nodes_.clear();
+//    sampleRoadSkeletonPoints(10.0f,
 }

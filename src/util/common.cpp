@@ -466,6 +466,63 @@ void smoothCurve(vector<RoadPt>& center_line, bool fix_front){
     }
 }
 
+void sampleGPSPoints(float radius,
+                     float heading_threshold,
+                     const PclPointCloud::Ptr& points,
+                     const PclSearchTree::Ptr& search_tree,
+                     PclPointCloud::Ptr& new_points,
+                     PclSearchTree::Ptr& new_search_tree){
+    if (radius < 1.0f) {
+        cout << "WARNING from sampleGPSPoints: radius is too small" << endl;
+        return;
+    }
+    
+    // Sample points
+    vector<bool> pt_covered(points->size(), false);
+    for (size_t i = 0; i < points->size(); ++i) {
+        if (pt_covered[i]) {
+            continue;
+        }
+        
+        PclPoint pt = points->at(i);
+        vector<int> k_indices;
+        vector<float> k_dist_sqrs;
+        search_tree->radiusSearch(pt,
+                                  radius,
+                                  k_indices,
+                                  k_dist_sqrs);
+        
+        float cum_x = 0.0f;
+        float cum_y = 0.0f;
+        int n_count = 0;
+        for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
+            PclPoint& nb_pt = points->at(*it);
+            float delta_heading = abs(deltaHeading1MinusHeading2(nb_pt.head, pt.head));
+            if (delta_heading < heading_threshold) {
+                cum_x += nb_pt.x;
+                cum_y += nb_pt.y;
+                n_count++;
+                pt_covered[*it] = true;
+            }
+        }
+        
+        if (n_count > 0) {
+            PclPoint new_pt = pt;
+            new_pt.x = cum_x / n_count;
+            new_pt.y = cum_y / n_count;
+            new_pt.id_sample = n_count;
+        
+            new_points->push_back(new_pt);
+        }
+    }
+    
+    if (new_points->size() == 0) {
+        return;
+    }
+    
+    new_search_tree->setInputCloud(new_points);
+}
+
 void sampleRoadSkeletonPoints(float search_radius,
                               float heading_threshold,
                               float delta_perp_bin,
@@ -530,6 +587,7 @@ void sampleRoadSkeletonPoints(float search_radius,
                 pt_covered[*it] = true;
             }
         }
+        
         if (n_count > 0) {
             PclPoint new_pt = pt;
             new_pt.x = cum_x / n_count;
@@ -580,9 +638,9 @@ void sampleRoadSkeletonPoints(float search_radius,
             float d_heading = deltaHeading1MinusHeading2(nb_pt.head, pt.head);
             float delta_heading = abs(d_heading);
             
-            if (!is_oneway && delta_heading > 90.0f) {
-                delta_heading = 180.0f - delta_heading;
-            }
+//            if (!is_oneway && delta_heading > 90.0f) {
+//                delta_heading = 180.0f - delta_heading;
+//            }
             
             // heading votes
             if(k_dist_sqrs[it - k_indices.begin()] < 100.0f){
@@ -690,9 +748,9 @@ void sampleRoadSkeletonPoints(float search_radius,
         for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
             PclPoint& nearby_pt = tmp_points->at(*it);
             float delta_heading = abs(deltaHeading1MinusHeading2(nearby_pt.head, pt.head));
-            if(!is_oneway && delta_heading > 90.0f){
-                delta_heading = 180.0f - delta_heading;
-            }
+//            if(!is_oneway && delta_heading > 90.0f){
+//                delta_heading = 180.0f - delta_heading;
+//            }
             
             if (delta_heading < 7.5f) {
                 ++n_count;

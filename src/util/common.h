@@ -149,6 +149,16 @@ int decreaseHeadingBy(int delta_heading,
 void smoothCurve(vector<RoadPt>& center_line, bool fix_front = true);
 
 /*
+    sampleGPSPoints: speed up by sampling old GPS point cloud by radius, new_points to remove overlapping points. pt.id_sample in new_points represents the strength of the point.
+ */
+void sampleGPSPoints(float radius,
+                     float heading_threshold,
+                     const PclPointCloud::Ptr& points,
+                     const PclSearchTree::Ptr& search_tree,
+                     PclPointCloud::Ptr& new_points,
+                     PclSearchTree::Ptr& new_search_tree);
+
+/*
     sampleRoadSkeletonPoints: this function extract a set of candidate skeleton points from the original point cloud: points
  */
 void sampleRoadSkeletonPoints(float search_radius,

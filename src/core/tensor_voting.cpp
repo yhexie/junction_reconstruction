@@ -8,6 +8,8 @@
 
 #include "tensor_voting.h"
 
+/*
+
 void tensor_decomposition(const Matrix2d& T,
                           Vector2d& e1,
                           Vector2d& e2,
@@ -126,3 +128,5 @@ void compute_unit_ball_vote(const Vector2d& v,
     Vector2d vec(cos(theta), sin(theta));
     T = attenuation * (Matrix2d::Identity() - vec * vec.transpose());
 }
+
+*/
