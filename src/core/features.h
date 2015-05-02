@@ -112,7 +112,7 @@ void tensor_decomposition(const Eigen::Matrix2d& T,
                           double& lambda1,
                           double& lambda2);
 
-float branchFitting(RoadPt& start_point,
+float branchFitting(const vector<RoadPt>&     centerline,
                     PclPointCloud::Ptr& points,
                     PclSearchTree::Ptr& search_tree,
                     Trajectories*       trajectories,
@@ -124,7 +124,7 @@ void traceBranches(RoadPt& start_point,
                    PclSearchTree::Ptr& search_tree,
                    vector<vector<RoadPt> >& branches);
 
-bool branchPrediction(RoadPt&             start_point,
+bool branchPrediction(const vector<RoadPt>&     centerline,
                       set<int>&           candidate_set,
                       Trajectories*       trajectories,
                       RoadPt&             junction_loc,

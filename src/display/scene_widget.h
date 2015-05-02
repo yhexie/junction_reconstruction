@@ -73,39 +73,27 @@ signals:
     void slotExtractMapBranchingPoints();
     
     // Road Generator
-    void slotRoadGeneratorLoadQueryInitClassifier();
-    void slotRoadGeneratorApplyQueryInitClassifier();
-    void slotRoadGeneratorSaveQueryInitResult();
-    void slotRoadGeneratorLoadQueryInitResult();
-    
-    void slotRoadGeneratorLoadQueryQClassifier();
+    void slotRoadGeneratorPointBasedVoting();
     void slotRoadGeneratorComputeInitialRoadGuess();
     void slotRoadGeneratorAddInitialRoad();
     void slotRoadGeneratorTmp();
-    
     void slotRoadGeneratorDevelopRoadNetwork();
     void slotRoadGeneratorLocalAdjustment();
     void slotRoadGeneratorMCMCOptimization();
     
     // Features
-    void slotExtractQueryInitTrainingSamplesFromMap();
-    void slotLoadQueryInitTrainingSamples();
-    void slotSaveQueryInitTrainingSamples();
-    void slotTrainQueryInitClassifier();
-    void slotSaveQueryInitClassifer();
-    
-    void slotExtractQueryQTrainingSamplesFromMap();
-    void slotLoadQueryQTrainingSamples();
-    void slotSaveQueryQTrainingSamples();
-    void slotTrainQueryQClassifier();
-    void slotSaveQueryQClassifer();
     
     // Parameters
     void slotParameterSearchRadiusChanged(double);
     void slotParameterGpsErrorSigmaChanged(double);
     void slotParameterGpsErrorHeadinbgChanged(double);
-    
     void slotParameterDeltaGrowingLengthChanged(double);
+    
+    void slotParameterRoadSigmaHValueChanged(double);
+    void slotParameterRoadSigmaWValueChanged(double);
+    void slotParameterRoadVoteGridSizeValueChanged(double);
+    void slotParameterRoadVoteThresholdValueChanged(double);
+    
     void slotParameterBranchPredictorExtensionRatioChanged(double);
     void slotParameterBranchPredictorMaxTExtension(double);
     

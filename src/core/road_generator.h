@@ -131,6 +131,8 @@ public:
     
     float estimateRoadWidth(RoadPt& seed_pt);
     
+    void pointBasedVoting();
+    void pointBasedVotingVisualization();
     bool computeInitialRoadGuess();
     bool addInitialRoad();
     
@@ -184,8 +186,12 @@ private:
     PclPointCloud::Ptr              point_cloud_;
     PclSearchTree::Ptr              search_tree_;
     
-    PclPointCloud::Ptr              tmp_point_cloud_; // a tmp point cloud for ease of use
-    PclSearchTree::Ptr              tmp_search_tree_;
+    PclPointCloud::Ptr              simplified_traj_points_;
+    PclSearchTree::Ptr              simplified_traj_point_search_tree_;
+    
+    PclPointCloud::Ptr              grid_points_; // a tmp point cloud for ease of use
+    PclSearchTree::Ptr              grid_point_search_tree_;
+    vector<float>                   grid_votes_;
     
     map<vertex_t, Symbol*>          graph_nodes_;
     symbol_graph_t                  symbol_graph_;
@@ -219,7 +225,6 @@ private:
     vector<Vertex>                  points_to_draw_;
     vector<Color>                   point_colors_;
     
-    int                             j;
     RoadSymbol*                     new_road;
     float                           cur_cum_length;
     float                           radius;

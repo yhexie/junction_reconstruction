@@ -140,37 +140,25 @@ void MainWindow::init(void)
     connect(ui_->scene_widget, SIGNAL(osmFileLoaded(QString &)), this, SLOT(slotOsmFileLoaded(QString &)));
     
     // Road Generator View
-    connect(ui_->roadGeneratorLoadQueryInitClassifier, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorLoadQueryInitClassifier()));
-    connect(ui_->roadGeneratorApplyQueryInitClassifier, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorApplyQueryInitClassifier()));
-    connect(ui_->roadGeneratorSaveQueryInitResult, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorSaveQueryInitResult()));
-    connect(ui_->roadGeneratorLoadQueryInitResult, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorLoadQueryInitResult()));
+    connect(ui_->roadGeneratorPointBasedVoting, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorPointBasedVoting()));
     connect(ui_->roadGeneratorComputeInitialRoadGuess, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorComputeInitialRoadGuess()));
     connect(ui_->roadGeneratorAddInitialRoad, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorAddInitialRoad()));
     connect(ui_->roadGeneratorTmp, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorTmp()));
-    
     connect(ui_->roadGeneratorDevelopRoadNetwork, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorDevelopRoadNetwork()));
     connect(ui_->roadGeneratorLocalAdjustment, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorLocalAdjustment()));
     connect(ui_->roadGeneratorMCMCOptimization, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorMCMCOptimization()));
-    
-    // Feature View
-    connect(ui_->extractQueryInitSamplesFromMap, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotExtractQueryInitTrainingSamplesFromMap()));
-    connect(ui_->loadQueryInitTrainingSamples, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotLoadQueryInitTrainingSamples()));
-    connect(ui_->saveQueryInitSamples, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotSaveQueryInitTrainingSamples()));
-    connect(ui_->trainQueryInitClassifier, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotTrainQueryInitClassifier()));
-    connect(ui_->saveQueryInitClassifier, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotSaveQueryInitClassifer()));
-    
-    connect(ui_->extractQueryQSamplesFromMap, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotExtractQueryQTrainingSamplesFromMap()));
-    connect(ui_->loadQueryQTrainingSamples, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotLoadQueryQTrainingSamples()));
-    connect(ui_->saveQueryQSamples, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotSaveQueryQTrainingSamples()));
-    connect(ui_->trainQueryQClassifier, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotTrainQueryQClassifier()));
-    connect(ui_->saveQueryQClassifier, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotSaveQueryQClassifer()));
     
     // Parameters
     connect(ui_->parameterSearchRadius, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotParameterSearchRadiusChanged(double)));
     connect(ui_->parameterGPSErrorSigma, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotParameterGpsErrorSigmaChanged(double)));
     connect(ui_->parameterGPSErrorHeading, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotParameterGpsErrorHeadinbgChanged(double)));
-    
     connect(ui_->parameterDeltaGrowingLength, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotParameterDeltaGrowingLengthChanged(double)));
+    
+    connect(ui_->parameterRoadSigmaH, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotParameterRoadSigmaHValueChanged(double)));
+    connect(ui_->parameterRoadSigmaW, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotParameterRoadSigmaWValueChanged(double)));
+    connect(ui_->parameterRoadVoteGridSize, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotParameterRoadVoteGridSizeValueChanged(double)));
+    connect(ui_->parameterRoadVoteThreshold, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotParameterRoadVoteThresholdValueChanged(double)));
+    
     connect(ui_->parameterBranchPredictorExtensionRatio, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotParameterBranchPredictorExtensionRatioChanged(double)));
     connect(ui_->parameterBranchPredictorMaxTExtension, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotParameterBranchPredictorMaxTExtension(double)));
     

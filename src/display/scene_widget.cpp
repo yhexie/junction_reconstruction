@@ -57,9 +57,14 @@ SceneWidget::SceneWidget(QWidget * parent, const QGLWidget * shareWidget, Qt::Wi
     Parameters::getInstance().gpsSigma() = MainWindow::getInstance()->getUi()->parameterGPSErrorSigma->value();
     Parameters::getInstance().gpsMaxHeadingError() = MainWindow::getInstance()->getUi()->parameterGPSErrorHeading->value();
     Parameters::getInstance().deltaGrowingLength() = MainWindow::getInstance()->getUi()->parameterDeltaGrowingLength->value();
+    
+    Parameters::getInstance().roadSigmaH() = MainWindow::getInstance()->getUi()->parameterRoadSigmaH->value();
+    Parameters::getInstance().roadSigmaW() = MainWindow::getInstance()->getUi()->parameterRoadSigmaW->value();
+    Parameters::getInstance().roadVoteGridSize() = MainWindow::getInstance()->getUi()->parameterRoadVoteGridSize->value();
+    Parameters::getInstance().roadVoteThreshold() = MainWindow::getInstance()->getUi()->parameterRoadVoteThreshold->value();
+    
     Parameters::getInstance().branchPredictorExtensionRatio() = MainWindow::getInstance()->getUi()->parameterBranchPredictorExtensionRatio->value();
     Parameters::getInstance().branchPredictorMaxTExtension() = MainWindow::getInstance()->getUi()->parameterBranchPredictorMaxTExtension->value();
-    
     
 //    show_graph_ = true;
 }
@@ -248,7 +253,11 @@ void SceneWidget::paintGL(){
     
     float aspect_ratio = static_cast<float>(width()) / height();
     
-    qglClearColor(QColor(220, 220, 220));
+    // Gray background
+//    qglClearColor(QColor(220, 220, 220));
+    
+    // White background
+    qglClearColor(QColor(255, 255, 255));
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     m_program_->bind();
     view_matrix_.setToIdentity();
@@ -577,29 +586,7 @@ void SceneWidget::slotExtractMapBranchingPoints(){
 /*
         Road Generator
  */
-void SceneWidget::slotRoadGeneratorLoadQueryInitClassifier(){
-    MainWindow* main_window = MainWindow::getInstance();
-    
-    QString filename = QFileDialog::getOpenFileName(main_window,
-                                                    "Open Query Init Classifier",
-                                                    default_python_test_dir.c_str(),
-                                                    " (*.dat)");
-    if (filename.isEmpty())
-        return;
-    
-    QString str;
-    if (road_generator_->loadQueryInitClassifer(filename.toStdString()))
-    {
-        QTextStream(&str) << "Query Init samples loaded from " << filename;
-    }
-    else{
-        QTextStream(&str) << "Error occured when loading query init samples from " << filename;
-    }
-    
-    main_window->getUi()->roadGeneratorQueryInitClassifierInfo->setText(str);
-}
-
-void SceneWidget::slotRoadGeneratorApplyQueryInitClassifier(){
+void SceneWidget::slotRoadGeneratorPointBasedVoting(){
     if (trajectories_->isEmpty()){
         QMessageBox msgBox;
         msgBox.setText("Please load trajectory file.");
@@ -607,92 +594,15 @@ void SceneWidget::slotRoadGeneratorApplyQueryInitClassifier(){
         return;
     }
     
-    if (trajectories_->samples()->size() == 0){
-        QMessageBox msgBox;
-        msgBox.setText("Please sample GPS point cloud first.");
-        msgBox.exec();
-        return;
-    }
-    
-    if (!road_generator_->hasValidQueryInitDecisionFunction()){
-        QMessageBox msgBox;
-        msgBox.setText("Please load query init classifer first.");
-        msgBox.exec();
-        return;
-    }
-    
-    MainWindow* main_window = MainWindow::getInstance();
-    float sigma = main_window->getUi()->queryInitSearchRadius->value();
-    
-    road_generator_->applyQueryInitClassifier(sigma);
+    road_generator_->pointBasedVoting();
     
     updateGL();
-}
-
-void SceneWidget::slotRoadGeneratorSaveQueryInitResult(){
-    MainWindow* main_window = MainWindow::getInstance();
-    
-    QString filename = QFileDialog::getSaveFileName(main_window, "Save Query Init Classification Results",
-                                                    default_python_test_dir.c_str(),
-                                                    "*.txt");
-    if (filename.isEmpty())
-        return;
-    
-    road_generator_->saveQueryInitResult(filename.toStdString());
-}
-
-void SceneWidget::slotRoadGeneratorLoadQueryInitResult(){
-    MainWindow* main_window = MainWindow::getInstance();
-    
-    QString filename = QFileDialog::getOpenFileName(main_window,
-                                                    "Load Query Init Classification Result",
-                                                    default_python_test_dir.c_str(),
-                                                    " (*.txt)");
-    if (filename.isEmpty())
-        return;
-    
-    road_generator_->loadQueryInitResult(filename.toStdString());
-    updateGL();
-}
-
-void SceneWidget::slotRoadGeneratorLoadQueryQClassifier(){
-    MainWindow* main_window = MainWindow::getInstance();
-    
-    QString filename = QFileDialog::getOpenFileName(main_window,
-                                                    "Open Query Q Classifier",
-                                                    default_python_test_dir.c_str(),
-                                                    " (*.dat)");
-    if (filename.isEmpty())
-        return;
-    
-    QString str;
-    if (road_generator_->loadQueryQClassifer(filename.toStdString()))
-    {
-        QTextStream(&str) << "Query Init samples loaded from " << filename;
-    }
-    else{
-        QTextStream(&str) << "Error occured when loading query init samples from " << filename;
-    }
 }
 
 void SceneWidget::slotRoadGeneratorComputeInitialRoadGuess(){
     if (trajectories_->isEmpty()){
         QMessageBox msgBox;
         msgBox.setText("Please load trajectory file.");
-        msgBox.exec();
-        return;
-    }
-    
-    if (trajectories_->samples()->size() == 0){
-        QMessageBox msgBox;
-        msgBox.setText("Please sample GPS point cloud.");
-        msgBox.exec();
-        return;
-    }
-    
-    if (road_generator_->nQueryInitLabels() == 0){
-        QMessageBox msgBox;
-        msgBox.setText("Please apply query init classifer for initializing road seeds.");
         msgBox.exec();
         return;
     }
@@ -706,20 +616,6 @@ void SceneWidget::slotRoadGeneratorAddInitialRoad(){
     if (trajectories_->isEmpty()){
         QMessageBox msgBox;
         msgBox.setText("Please load trajectory file.");
-        msgBox.exec();
-        return;
-    }
-    
-    if (trajectories_->samples()->size() == 0){
-        QMessageBox msgBox;
-        msgBox.setText("Please sample GPS point cloud.");
-        msgBox.exec();
-        return;
-    }
-    
-    if (road_generator_->nQueryInitLabels() == 0){
-        QMessageBox msgBox;
-        msgBox.setText("Please apply query init classifer for initializing road seeds.");
         msgBox.exec();
         return;
     }
@@ -750,222 +646,6 @@ void SceneWidget::slotRoadGeneratorMCMCOptimization(){
 /*
             Features
  */
-void SceneWidget::slotExtractQueryInitTrainingSamplesFromMap(){
-    if (osmMap_->isEmpty()){
-        QMessageBox msgBox;
-        msgBox.setText("Please load an openstreetmap.");
-        msgBox.exec();
-        return;
-    }
-    
-    if (trajectories_->isEmpty()){
-        QMessageBox msgBox;
-        msgBox.setText("Please load trajectory file.");
-        msgBox.exec();
-        return;
-    }
-    
-    MainWindow* main_window = MainWindow::getInstance();
-    float sigma = main_window->getUi()->queryInitSearchRadius->value();
-    
-    query_init_feature_selector_->extractTrainingSamplesFromMap(sigma, osmMap_);
-    QString str;
-    QTextStream(&str) << "Query Init samples extracted from map. Not saved yet.";
-    main_window->getUi()->featureInfo->setText(str);
-    
-    updateGL();
-}
-
-void SceneWidget::slotLoadQueryInitTrainingSamples(){
-    MainWindow* main_window = MainWindow::getInstance();
-    
-    QString filename = QFileDialog::getOpenFileName(main_window,
-                                                    "Open Query Init Traning Sample",
-                                                    default_python_test_dir.c_str(),
-                                                    " (*.txt)");
-    if (filename.isEmpty())
-        return;
-    
-    QString str;
-    if (query_init_feature_selector_->loadTrainingSamples(filename.toStdString()))
-    {
-        QTextStream(&str) << "Query Init samples loaded from " << filename;
-    }
-    else{
-        QTextStream(&str) << "Error occured when loading query init samples from " << filename;
-    }
-    
-    main_window->getUi()->featureInfo->setText(str);
-    
-    updateGL();
-}
-
-void SceneWidget::slotSaveQueryInitTrainingSamples(){
-    MainWindow* main_window = MainWindow::getInstance();
-    
-    QString filename = QFileDialog::getSaveFileName(main_window, "Save Query Init Training Samples",
-                                                    default_python_test_dir.c_str(),
-                                                    "*.txt");
-    if (filename.isEmpty())
-        return;
-    query_init_feature_selector_->saveTrainingSamples(filename.toStdString());
-    
-    QString str;
-    QTextStream(&str) << "Query Init samples saved as: " << filename;
-    main_window->getUi()->featureInfo->setText(str);
-}
-
-void SceneWidget::slotTrainQueryInitClassifier(){
-    if(query_init_feature_selector_->nFeatures() == 0){
-        QMessageBox msgBox;
-        msgBox.setText("Please compute or load training samples first.");
-        msgBox.exec();
-        return;
-    }
-    
-    if( query_init_feature_selector_->nFeatures() !=
-       query_init_feature_selector_->nLabels()){
-        QMessageBox msgBox;
-        msgBox.setText("Error! Training feature and label size do not match.");
-        msgBox.exec();
-        return;
-    }
-    
-    MainWindow* main_window = MainWindow::getInstance();
-    QString str;
-    if (query_init_feature_selector_->trainClassifier()){
-        QTextStream(&str) << "Training Query Init classifier completed.";
-    }
-    else{
-        QTextStream(&str) << "Error occurred when training Query Init classifier.";
-    }
-    
-    main_window->getUi()->featureInfo->setText(str);
-}
-
-void SceneWidget::slotSaveQueryInitClassifer(){
-    MainWindow* main_window = MainWindow::getInstance();
-    
-    QString filename = QFileDialog::getSaveFileName(main_window, "Save Query Init Classifier as .dat file.",
-                                                    default_python_test_dir.c_str(),
-                                                    "*.dat");
-    if (filename.isEmpty())
-        return;
-    query_init_feature_selector_->saveClassifier(filename.toStdString());
-    
-    QString str;
-    QTextStream(&str) << "Query Init classifier saved as: " << filename;
-    main_window->getUi()->featureInfo->setText(str);
-}
-
-void SceneWidget::slotExtractQueryQTrainingSamplesFromMap(){
-    if (osmMap_->isEmpty()){
-        QMessageBox msgBox;
-        msgBox.setText("Please load an openstreetmap.");
-        msgBox.exec();
-        return;
-    }
-    
-    if (trajectories_->isEmpty()){
-        QMessageBox msgBox;
-        msgBox.setText("Please load trajectory file.");
-        msgBox.exec();
-        return;
-    }
-    
-    MainWindow* main_window = MainWindow::getInstance();
-    float sigma = main_window->getUi()->queryInitSearchRadius->value();
-    
-    query_q_feature_selector_->extractTrainingSamplesFromMap(sigma, osmMap_);
-    QString str;
-    QTextStream(&str) << "Query Q samples extracted from map. Not saved yet.";
-    main_window->getUi()->featureInfo->setText(str);
-    
-    updateGL();
-}
-
-void SceneWidget::slotLoadQueryQTrainingSamples(){
-    MainWindow* main_window = MainWindow::getInstance();
-    
-    QString filename = QFileDialog::getOpenFileName(main_window,
-                                                    "Open Query Q Traning Sample",
-                                                    default_python_test_dir.c_str(),
-                                                    " (*.txt)");
-    if (filename.isEmpty())
-        return;
-    
-    QString str;
-    if (query_q_feature_selector_->loadTrainingSamples(filename.toStdString()))
-    {
-        QTextStream(&str) << "Query Q samples loaded from " << filename;
-    }
-    else{
-        QTextStream(&str) << "Error occured when loading query Q samples from " << filename;
-    }
-    
-    main_window->getUi()->featureInfo->setText(str);
-    
-    updateGL();
-}
-
-void SceneWidget::slotSaveQueryQTrainingSamples(){
-    MainWindow* main_window = MainWindow::getInstance();
-    
-    QString filename = QFileDialog::getSaveFileName(main_window, "Save Query Q Training Samples",
-                                                    default_python_test_dir.c_str(),
-                                                    "*.txt");
-    if (filename.isEmpty())
-        return;
-    query_q_feature_selector_->saveTrainingSamples(filename.toStdString());
-    
-    QString str;
-    QTextStream(&str) << "Query Q samples saved as: " << filename;
-    main_window->getUi()->featureInfo->setText(str);
-}
-
-void SceneWidget::slotTrainQueryQClassifier(){
-    if(query_q_feature_selector_->nFeatures() == 0){
-        QMessageBox msgBox;
-        msgBox.setText("Please compute or load training samples first.");
-        msgBox.exec();
-        return;
-    }
-    
-    if( query_q_feature_selector_->nFeatures() !=
-        query_q_feature_selector_->nLabels()){
-        QMessageBox msgBox;
-        msgBox.setText("Error! Training feature and label size do not match.");
-        msgBox.exec();
-        return;
-    }
-    
-    MainWindow* main_window = MainWindow::getInstance();
-    QString str;
-    if (query_q_feature_selector_->trainClassifier()){
-        QTextStream(&str) << "Training Query Q classifier completed.";
-    }
-    else{
-        QTextStream(&str) << "Error occurred when training Query Q classifier.";
-    }
-    
-    main_window->getUi()->featureInfo->setText(str);
-}
-
-void SceneWidget::slotSaveQueryQClassifer(){
-    MainWindow* main_window = MainWindow::getInstance();
-    
-    QString filename = QFileDialog::getSaveFileName(main_window, "Save Query Q Classifier as .dat file.",
-                                                    default_python_test_dir.c_str(),
-                                                    "*.dat");
-    if (filename.isEmpty())
-        return;
-    
-    query_q_feature_selector_->saveClassifier(filename.toStdString());
-    
-    QString str;
-    QTextStream(&str) << "Query Q classifier saved as: " << filename;
-    main_window->getUi()->featureInfo->setText(str);
-}
 
 /*
     Parameters
@@ -986,6 +666,24 @@ void SceneWidget::slotParameterDeltaGrowingLengthChanged(double d){
     Parameters::getInstance().deltaGrowingLength() = d;
 }
 
+void SceneWidget::slotParameterRoadSigmaHValueChanged(double v){
+    Parameters::getInstance().roadSigmaH() = v;
+}
+
+void SceneWidget::slotParameterRoadSigmaWValueChanged(double v){
+    Parameters::getInstance().roadSigmaW() = v;
+}
+
+void SceneWidget::slotParameterRoadVoteGridSizeValueChanged(double v){
+    Parameters::getInstance().roadVoteGridSize() = v;
+}
+
+void SceneWidget::slotParameterRoadVoteThresholdValueChanged(double v){
+    Parameters::getInstance().roadVoteThreshold() = v;
+    road_generator_->pointBasedVotingVisualization();
+    updateGL();
+}
+
 void SceneWidget::slotParameterBranchPredictorExtensionRatioChanged(double new_ratio){
     Parameters::getInstance().branchPredictorExtensionRatio() = new_ratio;
 }
@@ -1001,16 +699,6 @@ void SceneWidget::slotClearAll(void){
     clearData();
     
     MainWindow* main_window = MainWindow::getInstance();
-    
-    // Reset hint info
-    QString str;
-    QTextStream(&str) << "N.A.";
-    main_window->getUi()->roadGeneratorQueryInitClassifierInfo->setText(str);
-    main_window->getUi()->roadGeneratorQueryInitClassifierInfo->setText(str);
-    
-    QString str1;
-    QTextStream(&str1) << "No feature computed yet.";
-    main_window->getUi()->featureInfo->setText(str1);
     
     QString str2;
     QTextStream(&str2) << "No trajectories has been loaded yet.";

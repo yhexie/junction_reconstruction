@@ -34,6 +34,14 @@ namespace Common
     }
 }
 
+bool pairCompare(const pair<int, float>& firstElem, const pair<int, float>& secondElem){
+    return firstElem.second < secondElem.second;
+}
+
+bool pairCompareDescend(const pair<int, float>& firstElem, const pair<int, float>& secondElem){
+    return firstElem.second > secondElem.second;
+}
+
 float roadPtDistance(const RoadPt& p1, const RoadPt& p2){
     Eigen::Vector2d vec(p1.x - p2.x,
                         p1.y - p2.y);
@@ -194,7 +202,7 @@ float deltaHeading1MinusHeading2(float heading1, float heading2){
 
 Eigen::Vector2d headingTo2dVector(const int heading){
     if (heading < 0 || heading > 360) {
-        cout << "Error when converting heading to 2d vector. Invalid input.!" << endl;
+        cout << "Error when converting heading to 2d vector. Invalid input: " << heading << endl;
         return Eigen::Vector2d(0.0f, 0.0f);
     }
     
@@ -297,7 +305,7 @@ int decreaseHeadingBy(int delta_heading,
 
 void smoothCurve(vector<RoadPt>& center_line, bool fix_front){
     /*
-        This function smooth the road center line represented as a vector of RoadPt.
+     This function smooth the road center line represented as a vector of RoadPt.
      */
     if(center_line.size() < 2){
         return;
@@ -313,7 +321,7 @@ void smoothCurve(vector<RoadPt>& center_line, bool fix_front){
     if(fix_front){
         float orig_last_x = center_line.back().x;
         float orig_last_y = center_line.back().y;
-        int max_iter = 100;
+        int max_iter = 1000;
         int i_iter = 0;
         while(i_iter <= max_iter){
             i_iter++;
@@ -833,10 +841,6 @@ void adjustRoadCenterAt(RoadPt& r_pt,
                         float delta_bin,
                         float sigma_s,
                         bool pt_id_sample_store_weight){
-    /*
-        This function projects qualified nearby points to the perpendicular line to pt.head, and compute a histogram of distribution. The road center is the maximum of that distribution.
-     */
-    
     PclPoint pt;
     pt.setCoordinate(r_pt.x, r_pt.y, 0.0f);
     pt.head = r_pt.head;
@@ -858,6 +862,11 @@ void adjustRoadCenterAt(RoadPt& r_pt,
         return;
     }
     
+    if (N_BINS < 5) {
+        cout << "Warning: delta_bin = " << delta_bin << "m might be too big with search radius = " << search_radius << "m in computeRoadCenterAt(). This will lead to " << N_BINS << " bins in histogram" << endl;
+        return;
+    }
+    
     int half_window = ceil(sigma_s / delta_bin);
     
     Eigen::Vector3d pt_dir = headingTo3dVector(pt.head);
@@ -866,7 +875,10 @@ void adjustRoadCenterAt(RoadPt& r_pt,
     vector<int> k_indices;
     vector<float> k_dist_sqrs;
     
-    search_tree->radiusSearch(pt, search_radius, k_indices, k_dist_sqrs);
+    search_tree->radiusSearch(pt,
+                              search_radius,
+                              k_indices,
+                              k_dist_sqrs);
     
     vector<float> votes(N_BINS, 0.0f);
     
@@ -909,12 +921,42 @@ void adjustRoadCenterAt(RoadPt& r_pt,
     int max_idx = -1;
     findMaxElement(votes, max_idx);
     
+    float width_ratio = 0.8f;
     if(max_idx != -1){
         float avg_perp_dist = (max_idx + 0.5f) * delta_bin - search_radius;
         Eigen::Vector2d perp_dir_2d(pt_perp_dir.x(), pt_perp_dir.y());
         Eigen::Vector2d loc = avg_perp_dist * perp_dir_2d;
         r_pt.x += loc.x();
         r_pt.y += loc.y();
+        
+        // Update road width
+        int left_border = max_idx;
+        while (left_border >= 0) {
+            if (votes[left_border] < width_ratio * votes[max_idx]) {
+                break;
+            }
+            left_border--;
+        }
+        if(left_border < 0){
+            left_border = 0;
+        }
+        
+        int right_border = max_idx;
+        while (right_border < N_BINS) {
+            if (votes[right_border] < width_ratio * votes[max_idx]) {
+                break;
+            }
+            right_border++;
+        }
+        if(right_border >= N_BINS){
+            right_border = N_BINS-1;
+        }
+        
+        float road_width = (right_border - left_border + 1) * LANE_WIDTH;
+        if (road_width < LANE_WIDTH) {
+            road_width = LANE_WIDTH;
+        }
+        r_pt.n_lanes = floor(road_width / LANE_WIDTH + 0.5f);
     }
 }
 

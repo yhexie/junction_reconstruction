@@ -111,8 +111,8 @@ struct RoadPt{
                         y(ty),
                         head(thead)
     {
-        is_oneway = false;
-        n_lanes = 2;
+        is_oneway = true;
+        n_lanes = 1;
     }
     
     RoadPt(const RoadPt& pt){
@@ -128,6 +128,10 @@ namespace Common{
     std::string int2String(int i, int width);
     void randomK(std::vector<int>& random_k, int k, int N);
 }
+
+bool pairCompare(const pair<int, float>& firstElem, const pair<int, float>& secondElem);
+
+bool pairCompareDescend(const pair<int, float>& firstElem, const pair<int, float>& secondElem);
 
 float roadPtDistance(const RoadPt& p1, const RoadPt& p2);
 
@@ -182,6 +186,13 @@ void adjustRoadPtHeading(RoadPt& r_pt,
                          float delta_bin,
                          bool pt_id_sample_store_weight = false);
 
+/*
+ This function projects qualified nearby points to the perpendicular line to pt.head, and compute a histogram of distribution. The road center is the maximum of that distribution.
+
+    Note: r_pt.x, r_pt.y, r_pt.n_lanes will be updated accordingly
+    
+    The last argument: pt_id_sample_store_weight - an indicator whether the points are original GPS points. Sometimes, I use simplified point cloud by sampling original point cloud to speed up. In the simplified point cloud, the point's id_sample stores how many original points it covers, which is essentially the weight of the simplified point.
+ */
 void adjustRoadCenterAt(RoadPt& r_pt,
                         PclPointCloud::Ptr& points,
                         PclSearchTree::Ptr& search_tree,
@@ -189,7 +200,7 @@ void adjustRoadCenterAt(RoadPt& r_pt,
                         float heading_threshold,
                         float delta_bin,
                         float sigma_s,
-                        bool pt_id_sample_store_weight = false);
+                        bool pt_id_sample_store_weight);
 
 class Parameters{
 public:
@@ -203,6 +214,11 @@ public:
     float& gpsSigma() { return gps_sigma_; }
     float& gpsMaxHeadingError() { return gps_max_heading_error_; }
     
+    float& roadSigmaH() { return road_sigma_h_; }
+    float& roadSigmaW() { return road_sigma_w_; }
+    float& roadVoteGridSize() { return road_vote_grid_size_; }
+    float& roadVoteThreshold() { return road_vote_threshold_; }
+    
     float& branchPredictorExtensionRatio() { return branch_predictor_extension_ratio_; }
     float& branchPredictorMaxTExtension() { return branch_predictor_max_t_extension_; }
     
@@ -212,6 +228,12 @@ private:
         gps_sigma_ = 10.0f;
         gps_max_heading_error_ = 15.0f;
         delta_growing_length_ = 50.0f;
+        
+        road_sigma_h_ = 10.0f;
+        road_sigma_w_ = 2.5f;
+        road_vote_grid_size_ = 2.5f;
+        road_vote_threshold_ = 0.5f;
+        
         branch_predictor_extension_ratio_ = 6.0f;
         branch_predictor_max_t_extension_ = 30.0f;
     }
@@ -226,6 +248,11 @@ private:
     float delta_growing_length_;
     float gps_sigma_;
     float gps_max_heading_error_;
+    
+    float road_sigma_h_;
+    float road_sigma_w_;
+    float road_vote_grid_size_;
+    float road_vote_threshold_;
     
     float branch_predictor_extension_ratio_;
     float branch_predictor_max_t_extension_;
