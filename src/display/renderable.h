@@ -8,7 +8,8 @@
 class Renderable : public QObject{
 public:
     Renderable(QObject *parent);
-    void setShadderProgram(CustomizedShaderProgram *shadder) {shadder_program_ = shadder;}
+    void setShaderProgram(std::shared_ptr<CustomizedShaderProgram> shader) {shader_program_ = shader;}
+
     virtual ~Renderable();
     virtual void draw();
     
@@ -16,7 +17,7 @@ protected:
     QVector4D                           bound_box_; //[min_easting, max_easting, min_northing, max_northing]
     QOpenGLBuffer                       vertexPositionBuffer_;
     QOpenGLBuffer                       vertexColorBuffer_;
-    CustomizedShaderProgram*            shadder_program_;
+    std::shared_ptr<CustomizedShaderProgram>  shader_program_;
 };
 
 #endif //RENDERABLE_H_ 

@@ -268,13 +268,13 @@ void OpenStreetMap::draw(){
     vertexPositionBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
     vertexPositionBuffer_.bind();
     vertexPositionBuffer_.allocate(&normalized_vertices_[0], 3*normalized_vertices_.size()*sizeof(float));
-    shadder_program_->setupPositionAttributes();
+    shader_program_->setupPositionAttributes();
     
     vertexColorBuffer_.create();
     vertexColorBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
     vertexColorBuffer_.bind();
     vertexColorBuffer_.allocate(&vertex_colors_[0], 4*vertex_colors_.size()*sizeof(float));
-    shadder_program_->setupColorAttributes();
+    shader_program_->setupColorAttributes();
     
     for (size_t i=0; i < way_idxs_.size(); ++i) {
         QOpenGLBuffer element_buffer(QOpenGLBuffer::IndexBuffer);
@@ -294,14 +294,14 @@ void OpenStreetMap::draw(){
     vertex_buffer.setUsagePattern(QOpenGLBuffer::StaticDraw);
     vertex_buffer.bind();
     vertex_buffer.allocate(&direction_vertices_[0], 3*direction_vertices_.size()*sizeof(float));
-    shadder_program_->setupPositionAttributes();
+    shader_program_->setupPositionAttributes();
     
     QOpenGLBuffer color_buffer;
     color_buffer.create();
     color_buffer.setUsagePattern(QOpenGLBuffer::StaticDraw);
     color_buffer.bind();
     color_buffer.allocate(&direction_colors_[0], 4*direction_colors_.size()*sizeof(float));
-    shadder_program_->setupColorAttributes();
+    shader_program_->setupColorAttributes();
     
     for (size_t i=0; i < direction_idxs_.size(); ++i) {
         QOpenGLBuffer element_buffer(QOpenGLBuffer::IndexBuffer);

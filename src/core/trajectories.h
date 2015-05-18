@@ -37,6 +37,11 @@ public:
     // Point Cloud
     PclPointCloud::Ptr& data(void) {return data_;}
     PclSearchTree::Ptr& tree(void) {return tree_;}
+
+    const float& minSpeed() const { return min_speed_; }
+    const float& avgSpeed() const { return avg_speed_; }
+    const float& maxSpeed() const { return max_speed_; }
+
     bool isEmpty(); // Check if the data point cloud is empty.
     const size_t getNumPoint() const {return data_->size();}
     
@@ -78,41 +83,46 @@ protected:
     
 private:
     // Data
-    PclPointCloud::Ptr                data_;
-    PclSearchTree::Ptr                tree_;
-    vector<vector<int> >              trajectories_;
+    PclPointCloud::Ptr   data_;
+    PclSearchTree::Ptr   tree_;
+    vector<vector<int> > trajectories_;
+
+    // Data statistics
+    float                min_speed_;
+    float                max_speed_;
+    float                avg_speed_;
     
     // Sample
-    PclPointCloud::Ptr                  samples_;
-    PclSearchTree::Ptr                  sample_tree_;
-    vector<Vertex>                      sample_locs_;
-    vector<float>                       sample_scales_;
+    PclPointCloud::Ptr   samples_;
+    PclSearchTree::Ptr   sample_tree_;
+    vector<Vertex>       sample_locs_;
+    vector<float>        sample_scales_;
     
     // Rendering
-    float                           scale_factor_;
-    float                           point_size_;
-    float                           line_width_;
-    vector<Vertex>                  normalized_vertices_;
-    vector<Color>                   vertex_colors_const_;
-    vector<Color>                   vertex_colors_individual_;
-    vector<Vertex>                  vertex_speed_;
-    vector<Color>                   vertex_speed_colors_;
-    vector<int>                     vertex_speed_indices_;
-    vector<int>                     selected_trajectories_;
+    float                scale_factor_;
+    float                point_size_;
+    float                line_width_;
+    vector<Vertex>       normalized_vertices_;
+    vector<Color>        vertex_colors_const_;
+    vector<Color>        vertex_colors_individual_;
+    vector<Vertex>       vertex_speed_;
+    vector<Color>        vertex_speed_colors_;
+    vector<int>          vertex_speed_indices_;
+    vector<int>          selected_trajectories_;
     
     // Rendering Samples
-    bool                            show_samples_;
-    float                           sample_point_size_;
-    Color                           sample_color_;
-    vector<Vertex>                  normalized_sample_locs_;
-    vector<Vertex>                  normalized_sample_headings_;
-    vector<Color>                   sample_vertex_colors_;
-    vector<Color>                   sample_heading_colors_;
-    set<int>                        picked_sample_idxs_;
+    bool                 show_samples_;
+    float                sample_point_size_;
+    Color                sample_color_;
+    vector<Vertex>       normalized_sample_locs_;
+    vector<Vertex>       normalized_sample_headings_;
+    vector<Color>        sample_vertex_colors_;
+    vector<Color>        sample_heading_colors_;
+    set<int>             picked_sample_idxs_;
     
-    bool                            render_mode_;
-    bool                            selection_mode_;
-    bool                            show_direction_;
+    bool                 render_mode_;
+    bool                 selection_mode_;
+    bool                 show_direction_;
 };
 
 #endif // TRAJECTORIES_H_

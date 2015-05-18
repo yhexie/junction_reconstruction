@@ -58,10 +58,17 @@ bool myFunction(pair<int, pair<int, int>> p1, pair<int,pair<int, int>> p2) {
     }
 }
 
-Trajectories::Trajectories(QObject *parent) : Renderable(parent), data_(new PclPointCloud), tree_(new pcl::search::FlannSearch<PclPoint>(false)), samples_(new PclPointCloud), sample_tree_(new pcl::search::FlannSearch<PclPoint>(false))
+Trajectories::Trajectories(QObject *parent) : Renderable(parent), 
+    data_(new PclPointCloud), 
+    tree_(new pcl::search::FlannSearch<PclPoint>(false)), 
+    samples_(new PclPointCloud), 
+    sample_tree_(new pcl::search::FlannSearch<PclPoint>(false))
 {
     // Data
     trajectories_.clear();
+    min_speed_ = POSITIVE_INFINITY;
+    max_speed_ = 0.0f;
+    avg_speed_ = 0.0f;
     
     // Sample
     sample_locs_.clear();
@@ -369,6 +376,9 @@ bool Trajectories::loadPBF(const string &filename){
     normalized_vertices_.clear();
     vertex_colors_const_.clear();
     vertex_colors_individual_.clear();
+    min_speed_ = POSITIVE_INFINITY;
+    max_speed_ = 0.0f;
+    avg_speed_ = 0.0f;
     
     google::protobuf::io::ZeroCopyInputStream *raw_input = new google::protobuf::io::FileInputStream(fid);
     google::protobuf::io::CodedInputStream *coded_input = new google::protobuf::io::CodedInputStream(raw_input);
@@ -438,6 +448,12 @@ bool Trajectories::loadPBF(const string &filename){
                 point.lon = new_traj.point(pt_idx).lon();
                 point.lat = new_traj.point(pt_idx).lat();
                 point.speed = new_traj.point(pt_idx).speed();
+
+                if(point.speed > max_speed_)
+                    max_speed_ = point.speed;
+                if(point.speed < min_speed_)
+                    min_speed_ = point.speed;
+                avg_speed_ += point.speed;
                 
                 int new_traj_point_head = 450 - new_traj.point(pt_idx).head();
                 if (new_traj_point_head > 360) {
@@ -495,12 +511,15 @@ bool Trajectories::loadPBF(const string &filename){
     }
     
     close(fid);
+
+    if(data_->size() > 0)
+        avg_speed_ /= data_->size();
     
     SceneConst::getInstance().updateBoundBox(bound_box);
     
     delete raw_input;
     delete coded_input;
-    printf("Loading completed. %d trajectories loaded. Totally %zu points.\n", num_trajectory, data_->size());
+    printf("Loading completed. %d trajectories loaded. Totally %zu points. Average speed is: %.2fm/s\n", num_trajectory, data_->size(), avg_speed_ / 100.0f);
     return true;
 }
 
@@ -659,13 +678,13 @@ void Trajectories::draw(){
         vertexPositionBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
         vertexPositionBuffer_.bind();
         vertexPositionBuffer_.allocate(&normalized_vertices_[0], 3*normalized_vertices_.size()*sizeof(float));
-        shadder_program_->setupPositionAttributes();
+        shader_program_->setupPositionAttributes();
         
         vertexColorBuffer_.create();
         vertexColorBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
         vertexColorBuffer_.bind();
         vertexColorBuffer_.allocate(&vertex_colors_const_[0], 4*vertex_colors_const_.size()*sizeof(float));
-        shadder_program_->setupColorAttributes();
+        shader_program_->setupColorAttributes();
         
         glPointSize(point_size_);
         glDrawArrays(GL_POINTS, 0, normalized_vertices_.size());
@@ -676,13 +695,13 @@ void Trajectories::draw(){
             vertexPositionBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
             vertexPositionBuffer_.bind();
             vertexPositionBuffer_.allocate(&vertex_speed_[0], 3*vertex_speed_.size()*sizeof(float));
-            shadder_program_->setupPositionAttributes();
+            shader_program_->setupPositionAttributes();
             
             vertexColorBuffer_.create();
             vertexColorBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
             vertexColorBuffer_.bind();
             vertexColorBuffer_.allocate(&vertex_speed_colors_[0], 4*vertex_speed_colors_.size()*sizeof(float));
-            shadder_program_->setupColorAttributes();
+            shader_program_->setupColorAttributes();
             QOpenGLBuffer element_buffer(QOpenGLBuffer::IndexBuffer);
             element_buffer.create();
             element_buffer.setUsagePattern(QOpenGLBuffer::StaticDraw);
@@ -700,13 +719,13 @@ void Trajectories::draw(){
         vertexPositionBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
         vertexPositionBuffer_.bind();
         vertexPositionBuffer_.allocate(&normalized_vertices_[0], 3*normalized_vertices_.size()*sizeof(float));
-        shadder_program_->setupPositionAttributes();
+        shader_program_->setupPositionAttributes();
         
         vertexColorBuffer_.create();
         vertexColorBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
         vertexColorBuffer_.bind();
         vertexColorBuffer_.allocate(&vertex_colors_individual_[0], 4*vertex_colors_individual_.size()*sizeof(float));
-        shadder_program_->setupColorAttributes();
+        shader_program_->setupColorAttributes();
         
         for (int i=0; i < trajectories_.size(); ++i) {
             QOpenGLBuffer element_buffer(QOpenGLBuffer::IndexBuffer);
@@ -735,13 +754,13 @@ void Trajectories::draw(){
             vertexPositionBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
             vertexPositionBuffer_.bind();
             vertexPositionBuffer_.allocate(&normalized_sample_locs_[0], 3*normalized_sample_locs_.size()*sizeof(float));
-            shadder_program_->setupPositionAttributes();
+            shader_program_->setupPositionAttributes();
             
             vertexColorBuffer_.create();
             vertexColorBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
             vertexColorBuffer_.bind();
             vertexColorBuffer_.allocate(&sample_vertex_colors_[0], 4*sample_vertex_colors_.size()*sizeof(float));
-            shadder_program_->setupColorAttributes();
+            shader_program_->setupColorAttributes();
             
             glPointSize(sample_point_size_);
             glDrawArrays(GL_POINTS, 0, normalized_sample_locs_.size());
@@ -751,13 +770,13 @@ void Trajectories::draw(){
             vertexPositionBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
             vertexPositionBuffer_.bind();
             vertexPositionBuffer_.allocate(&normalized_sample_headings_[0], 3*normalized_sample_headings_.size()*sizeof(float));
-            shadder_program_->setupPositionAttributes();
+            shader_program_->setupPositionAttributes();
             
             vertexColorBuffer_.create();
             vertexColorBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
             vertexColorBuffer_.bind();
             vertexColorBuffer_.allocate(&sample_heading_colors_[0], 4*sample_heading_colors_.size()*sizeof(float));
-            shadder_program_->setupColorAttributes();
+            shader_program_->setupColorAttributes();
             
             glDrawArrays(GL_LINES, 0, normalized_sample_headings_.size());
             
@@ -775,13 +794,13 @@ void Trajectories::draw(){
                 vertexPositionBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
                 vertexPositionBuffer_.bind();
                 vertexPositionBuffer_.allocate(&picked_sample_locs[0], 3*picked_sample_locs.size()*sizeof(float));
-                shadder_program_->setupPositionAttributes();
+                shader_program_->setupPositionAttributes();
                 
                 vertexColorBuffer_.create();
                 vertexColorBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
                 vertexColorBuffer_.bind();
                 vertexColorBuffer_.allocate(&picked_sample_colors[0], 4*picked_sample_colors.size()*sizeof(float));
-                shadder_program_->setupColorAttributes();
+                shader_program_->setupColorAttributes();
                 
                 glPointSize(1.5*sample_point_size_);
                 glDrawArrays(GL_POINTS, 0, picked_sample_locs.size());
@@ -1299,13 +1318,13 @@ void Trajectories::drawSelectedTrajectories(vector<int> &traj_indices){
     vertexPositionBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
     vertexPositionBuffer_.bind();
     vertexPositionBuffer_.allocate(&selected_vertices[0], 3*selected_vertices.size()*sizeof(float));
-    shadder_program_->setupPositionAttributes();
+    shader_program_->setupPositionAttributes();
     
     vertexColorBuffer_.create();
     vertexColorBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
     vertexColorBuffer_.bind();
     vertexColorBuffer_.allocate(&selected_vertex_colors[0], 4*selected_vertex_colors.size()*sizeof(float));
-    shadder_program_->setupColorAttributes();
+    shader_program_->setupColorAttributes();
     
     for (int i=0; i < selected_trajectories.size(); ++i) {
         QOpenGLBuffer element_buffer(QOpenGLBuffer::IndexBuffer);
@@ -1325,14 +1344,14 @@ void Trajectories::drawSelectedTrajectories(vector<int> &traj_indices){
     vertex_buffer.setUsagePattern(QOpenGLBuffer::StaticDraw);
     vertex_buffer.bind();
     vertex_buffer.allocate(&direction_vertices[0], 3*direction_vertices.size()*sizeof(float));
-    shadder_program_->setupPositionAttributes();
+    shader_program_->setupPositionAttributes();
     
     QOpenGLBuffer color_buffer;
     color_buffer.create();
     color_buffer.setUsagePattern(QOpenGLBuffer::StaticDraw);
     color_buffer.bind();
     color_buffer.allocate(&direction_colors[0], 4*direction_colors.size()*sizeof(float));
-    shadder_program_->setupColorAttributes();
+    shader_program_->setupColorAttributes();
     
     for (size_t i=0; i < direction_idxs.size(); ++i) {
         QOpenGLBuffer element_buffer(QOpenGLBuffer::IndexBuffer);
@@ -1358,13 +1377,13 @@ void Trajectories::drawSelectedTrajectories(vector<int> &traj_indices){
     vertexPositionBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
     vertexPositionBuffer_.bind();
     vertexPositionBuffer_.allocate(&vertex_speed_[0], 3*vertex_speed_.size()*sizeof(float));
-    shadder_program_->setupPositionAttributes();
+    shader_program_->setupPositionAttributes();
     
     vertexColorBuffer_.create();
     vertexColorBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);
     vertexColorBuffer_.bind();
     vertexColorBuffer_.allocate(&vertex_speed_colors_[0], 4*vertex_speed_colors_.size()*sizeof(float));
-    shadder_program_->setupColorAttributes();
+    shader_program_->setupColorAttributes();
     QOpenGLBuffer element_buffer(QOpenGLBuffer::IndexBuffer);
     element_buffer.create();
     element_buffer.setUsagePattern(QOpenGLBuffer::StaticDraw);
@@ -1392,6 +1411,10 @@ void Trajectories::clearData(void){
     selection_mode_ = false;
     
     data_->clear();
+    min_speed_ = POSITIVE_INFINITY;
+    max_speed_ = 0.0f;
+    avg_speed_ = 0.0f;
+
     trajectories_.clear();
     selected_trajectories_.clear();
     

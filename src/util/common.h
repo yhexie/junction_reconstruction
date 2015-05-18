@@ -6,8 +6,9 @@
 #include <QVector4D>
 #include <pcl/search/search.h>
 #include <pcl/common/common.h>
-#include "pcl_wrapper_types.h"
 #include <Eigen/Dense>
+
+#include "pcl_types.h"
 
 #define PI 3.1415926
 using namespace std;
@@ -152,6 +153,7 @@ int decreaseHeadingBy(int delta_heading,
 
 void smoothCurve(vector<RoadPt>& center_line, bool fix_front = true);
 
+
 /*
     sampleGPSPoints: speed up by sampling old GPS point cloud by radius, new_points to remove overlapping points. pt.id_sample in new_points represents the strength of the point.
  */
@@ -193,14 +195,15 @@ void adjustRoadPtHeading(RoadPt& r_pt,
     
     The last argument: pt_id_sample_store_weight - an indicator whether the points are original GPS points. Sometimes, I use simplified point cloud by sampling original point cloud to speed up. In the simplified point cloud, the point's id_sample stores how many original points it covers, which is essentially the weight of the simplified point.
  */
-void adjustRoadCenterAt(RoadPt& r_pt,
+void adjustRoadCenterAt(RoadPt&             r_pt,
                         PclPointCloud::Ptr& points,
                         PclSearchTree::Ptr& search_tree,
-                        float search_radius,
-                        float heading_threshold,
-                        float delta_bin,
-                        float sigma_s,
-                        bool pt_id_sample_store_weight);
+                        float               trajecotry_avg_speed,
+                        float               search_radius,
+                        float               heading_threshold,
+                        float               delta_bin,
+                        float               sigma_s,
+                        bool                pt_id_sample_store_weight);
 
 class Parameters{
 public:

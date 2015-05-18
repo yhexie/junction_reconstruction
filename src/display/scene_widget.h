@@ -124,7 +124,7 @@ protected:
     void updateMaxScaleFactor();
     
 private:
-    CustomizedShaderProgram             *m_program_;
+    std::shared_ptr<CustomizedShaderProgram> m_program_;
     QMatrix4x4                          view_matrix_;
     int xRot;
     int yRot;
@@ -132,23 +132,20 @@ private:
     int yTrans;
     
     // Trajectory container
-    Trajectories                        *trajectories_;
+    std::shared_ptr<Trajectories>       trajectories_;
     bool                                sample_selection_mode;
     
     // OpenStreetMap container
-    OpenStreetMap                       *osmMap_;
+    std::shared_ptr<OpenStreetMap>      osmMap_;
     bool                                show_map_;
     
     // Road Generator
-    RoadGenerator                       *road_generator_;
+    std::shared_ptr<RoadGenerator>      road_generator_;
     
     // Graph container
     bool                                show_graph_;
     // Feature selection
     bool                                feature_selection_mode_;
-    
-    QueryInitFeatureSelector            *query_init_feature_selector_;
-    QueryQFeatureSelector               *query_q_feature_selector_;
     
     // Visualization mode
     bool                                selection_mode_;
@@ -159,7 +156,7 @@ private:
     float                               maxScaleFactor_;
     float                               zoomTransX_;
     float                               zoomTransY_;
-    QMenu                               *right_click_menu_;
+    std::unique_ptr<QMenu>              right_click_menu_;
     
     void updateInformation(void);
 };

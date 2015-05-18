@@ -5,3 +5,5 @@ src/pkgs/
 *.pb.h
 *.pb.cc
 *.pbf
+*.swp
+*.pyc

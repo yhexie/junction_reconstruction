@@ -64,9 +64,14 @@ void findMaxElement(const vector<float> hist, int& max_idx){
     }
 }
 
-void peakDetector(vector<float>& hist, int window, float ratio, vector<int>& peak_idxs,bool is_closed){
+void peakDetector(vector<float>& hist,
+                  int            window,
+                  float          ratio,
+                  vector<int>&   peak_idxs,
+                  bool           is_closed){
     // Detecting peaks in a histogram
     //is_closed: true - loop around; false: do not loop around.
+    // ratio should >= 1.0f
     
     peak_idxs.clear();
     int left_offset = window / 2;
@@ -82,6 +87,9 @@ void peakDetector(vector<float>& hist, int window, float ratio, vector<int>& pea
             float avg_value = 0.0;
             int count = 0;
             for (int j = start_idx; j <= right_idx; ++j) {
+                if(j == i) 
+                    continue;
+
                 int hist_idx = j;
                 if (hist_idx < 0) {
                     hist_idx += hist.size();
@@ -89,7 +97,7 @@ void peakDetector(vector<float>& hist, int window, float ratio, vector<int>& pea
                 if (hist_idx >= hist.size()) {
                     hist_idx = hist_idx % hist.size();
                 }
-                if (hist[hist_idx] > hist[i]) {
+                if (hist[hist_idx] >= hist[i]) {
                     is_max = false;
                     break;
                 }
@@ -130,6 +138,9 @@ void peakDetector(vector<float>& hist, int window, float ratio, vector<int>& pea
             float avg_value = 0.0;
             int count = 0;
             for (int j = start_idx; j <= right_idx; ++j) {
+                if(i == j) 
+                    continue;
+
                 int hist_idx = j;
                 
                 if (hist[hist_idx] > hist[i]) {
@@ -474,17 +485,17 @@ void smoothCurve(vector<RoadPt>& center_line, bool fix_front){
     }
 }
 
-void sampleGPSPoints(float radius,
-                     float heading_threshold,
+void sampleGPSPoints(float                     radius,
+                     float                     heading_threshold,
                      const PclPointCloud::Ptr& points,
                      const PclSearchTree::Ptr& search_tree,
-                     PclPointCloud::Ptr& new_points,
-                     PclSearchTree::Ptr& new_search_tree){
+                     PclPointCloud::Ptr&       new_points,
+                     PclSearchTree::Ptr&       new_search_tree){
     if (radius < 1.0f) {
         cout << "WARNING from sampleGPSPoints: radius is too small" << endl;
         return;
     }
-    
+
     // Sample points
     vector<bool> pt_covered(points->size(), false);
     for (size_t i = 0; i < points->size(); ++i) {
@@ -500,25 +511,28 @@ void sampleGPSPoints(float radius,
                                   k_indices,
                                   k_dist_sqrs);
         
-        float cum_x = 0.0f;
-        float cum_y = 0.0f;
-        int n_count = 0;
+        float cum_x   = 0.0f;
+        float cum_y   = 0.0f;
+        int cum_speed = 0;
+        int n_count   = 0;
         for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
             PclPoint& nb_pt = points->at(*it);
             float delta_heading = abs(deltaHeading1MinusHeading2(nb_pt.head, pt.head));
             if (delta_heading < heading_threshold) {
-                cum_x += nb_pt.x;
-                cum_y += nb_pt.y;
+                cum_x           += nb_pt.x;
+                cum_y           += nb_pt.y;
+                cum_speed       += nb_pt.speed;
                 n_count++;
-                pt_covered[*it] = true;
+                pt_covered[*it]  = true;
             }
         }
         
         if (n_count > 0) {
             PclPoint new_pt = pt;
-            new_pt.x = cum_x / n_count;
-            new_pt.y = cum_y / n_count;
+            new_pt.x         = cum_x / n_count;
+            new_pt.y         = cum_y / n_count;
             new_pt.id_sample = n_count;
+            new_pt.speed     = cum_speed / n_count;
         
             new_points->push_back(new_pt);
         }
@@ -833,14 +847,15 @@ void adjustRoadPtHeading(RoadPt& r_pt,
     }
 }
 
-void adjustRoadCenterAt(RoadPt& r_pt,
+void adjustRoadCenterAt(RoadPt&             r_pt,
                         PclPointCloud::Ptr& points,
                         PclSearchTree::Ptr& search_tree,
-                        float search_radius,
-                        float heading_threshold,
-                        float delta_bin,
-                        float sigma_s,
-                        bool pt_id_sample_store_weight){
+                        float               trajecotry_avg_speed,
+                        float               search_radius,
+                        float               heading_threshold,
+                        float               delta_bin,
+                        float               sigma_s,
+                        bool                pt_id_sample_store_weight){
     PclPoint pt;
     pt.setCoordinate(r_pt.x, r_pt.y, 0.0f);
     pt.head = r_pt.head;
@@ -908,20 +923,42 @@ void adjustRoadCenterAt(RoadPt& r_pt,
                 
                 float delta_bin_center = perp_proj + search_radius - s * delta_bin;
                 
+                float adjusted_sigma_s = sigma_s;
+                if(nb_pt.speed < 1.5f * trajecotry_avg_speed)
+                    adjusted_sigma_s = sigma_s * trajecotry_avg_speed / (nb_pt.speed + 0.1f);
+
                 if (pt_id_sample_store_weight) {
-                    votes[s] += nb_pt.id_sample * exp(-1.0f * delta_bin_center * delta_bin_center / 2.0f / sigma_s / sigma_s);
+                    votes[s] += nb_pt.id_sample * exp(-1.0f * delta_bin_center * delta_bin_center / 2.0f / adjusted_sigma_s / adjusted_sigma_s);
                 }
                 else{
-                    votes[s] += exp(-1.0f * delta_bin_center * delta_bin_center / 2.0f / sigma_s / sigma_s);
+                    votes[s] += exp(-1.0f * delta_bin_center * delta_bin_center / 2.0f / adjusted_sigma_s / adjusted_sigma_s);
                 }
             }
         }
     }
     
     int max_idx = -1;
-    findMaxElement(votes, max_idx);
+    vector<int> peak_idxs;
+    int window_size = floor(3.7f * 4 / delta_bin);
+
+    peakDetector(votes,
+                 window_size,
+                 1.5f,
+                 peak_idxs,
+                 false);
+
+    if(peak_idxs.size() > 0){
+        float closest_dist = POSITIVE_INFINITY;
+        for (const auto& idx : peak_idxs) { 
+            float delta_dist = abs(idx * delta_bin - search_radius);
+            if(delta_dist < closest_dist){
+                closest_dist = delta_dist;
+                max_idx = idx;
+            } 
+        } 
+    } 
     
-    float width_ratio = 0.8f;
+    float width_ratio = 0.6f;
     if(max_idx != -1){
         float avg_perp_dist = (max_idx + 0.5f) * delta_bin - search_radius;
         Eigen::Vector2d perp_dir_2d(pt_perp_dir.x(), pt_perp_dir.y());

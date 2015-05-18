@@ -4,7 +4,6 @@
 //
 //  Created by Chen Chen on 1/2/15.
 //
-//
 
 #ifndef __junction_reconstruction__road_generator__
 #define __junction_reconstruction__road_generator__
@@ -23,87 +22,14 @@
 #include <Eigen/Dense>
 
 using namespace std;
-using namespace boost;
-
-//Used for polygonal line fitting
-
-void polygonalFitting(vector<Vertex>& pts,
-                      vector<Vertex>& results,
-                      float& avg_dist);
-
-void initialRoadFitting(vector<Vertex>& pts,
-                        vector<Vertex>& results,
-                        int max_n_vertices = 3);
-
-void pointsToPolylineProjection(vector<Vertex>& pts,
-                                vector<Vertex>& polyline,
-                                vector<vector<int>>& assignment);
-
-void pointsToPolylineProjectionWithHeading(vector<Vertex>& pts,
-                                           vector<Vertex>& polyline,
-                                           vector<vector<int>>& assignment);
-
-float computeGnScoreAt(int idx,
-                        vector<Vertex>& data,
-                        vector<Vertex>& vertices, // the vertices of the poly line
-                        vector<vector<int>>& assignment,
-                        float lambda,
-                        float r);
-
-void computeGnApproxiGradientAt(int idx,
-                                vector<Vertex>& data,
-                                vector<Vertex>& vertices, // the vertices of the poly line
-                                vector<vector<int>>& assignment,
-                                float lambda,
-                                float R,
-                                Eigen::Vector2d& grad_dir);
-
-void computeGnGradientAt(int idx,
-                         vector<Vertex>& data,
-                         vector<Vertex>& vertices, // the vertices of the poly line
-                         vector<vector<int>>& assignment,
-                         float lambda,
-                         float R,
-                         Eigen::Vector2d& grad_dir);
-
-void computeDpPlusOneAt(int idx,
-                        vector<Vertex>& vertices,
-                        float R,
-                        Eigen::Vector2d& d_pv_vi_plus_1);
-
-void computeDpMinusOneAt(int idx,
-                         vector<Vertex>& vertices,
-                         float R,
-                         Eigen::Vector2d& d_pv_vi_minus_1);
-
-void computeDpAt(int idx,
-                 vector<Vertex>& vertices,
-                 float R,
-                 Eigen::Vector2d& d_pv_vi);
-
-void dividePointsIntoSets(vector<Vertex>& pts,
-                          vector<Vertex>& center,
-                          vector<vector<int>>& assignments,
-                          map<int, float>& dist);
-
-bool dividePointsIntoSets(set<int>& pts,
-                          PclPointCloud::Ptr data,
-                          vector<Vertex>& centerline,
-                          vector<vector<int>>& assignments,
-                          map<int, float>& dists,
-                          bool with_checking = false,
-                          bool is_oneway = true,
-                          float dist_threshold = 15.f,
-                          float heading_threshold = 15.0f,
-                          int tolerance = 10);
 
 class RoadGenerator : public Renderable
 {
 public:
-    RoadGenerator(QObject *parent, Trajectories* trajectories = NULL);
+    RoadGenerator(QObject *parent, std::shared_ptr<Trajectories> trajectories = nullptr);
     ~RoadGenerator();
     
-    void setTrajectories(Trajectories* new_trajectories) {
+    void setTrajectories(std::shared_ptr<Trajectories>& new_trajectories) {
         trajectories_ = new_trajectories;
         has_been_covered_.clear();
         if(trajectories_->data()->size() > 0){
@@ -113,49 +39,20 @@ public:
     
     void applyRules();
     
-    // Features & Prediction
-    bool loadQueryInitClassifer(const string& filename);
-    bool saveQueryInitResult(const string& filename);
-    bool loadQueryInitResult(const string& filename);
-    
-    bool hasValidQueryInitDecisionFunction() const { return query_init_df_is_valid_; }
-    void applyQueryInitClassifier(float radius);
-    void extractQueryInitFeatures(float radius);
-    int  nQueryInitFeatures() { return query_init_features_.size(); }
-    int  nQueryInitLabels() { return query_init_labels_.size(); }
-    bool exportQueryInitFeatures(float radius, const string& filename);
-    bool loadQueryInitFeatures(const string& filename);
-   
-    bool loadQueryQClassifer(const string& filename);
-    bool hasValidQueryQDecisionFunction() const { return query_q_df_is_valid_; }
-    
-    float estimateRoadWidth(RoadPt& seed_pt);
-    
     void pointBasedVoting();
+    void computeVoteLocalMaxima();
     void pointBasedVotingVisualization();
     bool computeInitialRoadGuess();
     bool addInitialRoad();
     
     void tmpFunc();
     
-    void trace_roads();
-    void extend_road(int r_idx,
-                     vector<int>&,
-                     vector<bool>& mark_list,
-                     bool forward = true);
-    void generateRoadFromPoints(vector<int>& candidate_pt_idxs,
-                                vector<RoadPt>& road);
-    
     // Trajectory - Road projection
-    void updateGPSPointsOnRoad(RoadSymbol* road);
-    void getConsistentPointSetForRoad(RoadSymbol* road,
+    void updateGPSPointsOnRoad(std::shared_ptr<RoadSymbol> road);
+    void getConsistentPointSetForRoad(std::shared_ptr<RoadSymbol> road,
                                       set<int>& candidate_point_set,
-                                      bool backward);
-    
-    void detectOverlappingRoadSeeds(vector<RoadSymbol*>& road_list, vector<vector<int>>& result);
-    
-    bool exportQueryQFeatures(const string& filename);
-    bool loadQueryQPredictions(const string& filename);
+                                      vector<vector<int> >& segments,
+                                      vector<float>& segment_scores);
     
     // Grammar
     void production();
@@ -164,13 +61,6 @@ public:
     // Util
     void localAdjustment();
     void updatePointCloud();
-    void detectRoadsToMerge(vector<vector<int>>& roads_to_merge);
-    void mergeRoads(vector<vector<int>>& roads_to_merge);
-    void getMergedRoadsFrom(vector<int>& candidate_roads, RoadSymbol* new_road);
-    
-    // Fitting
-    bool fitARoadAt(PclPoint& loc, RoadSymbol* road, bool is_oneway, float heading);
-    void fitRoadAt(int sample_idx, Eigen::Vector2d& start, Eigen::Vector2d& end, float& start_heading, float& end_heading, int& n_lanes, bool& is_oneway, float& lane_width, set<int>& covered_data);
     
     // Road relationship
     void refit();
@@ -192,27 +82,14 @@ private:
     PclPointCloud::Ptr              grid_points_; // a tmp point cloud for ease of use
     PclSearchTree::Ptr              grid_point_search_tree_;
     vector<float>                   grid_votes_;
+    vector<bool>                    grid_is_local_maximum_;
     
-    map<vertex_t, Symbol*>          graph_nodes_;
+    map<vertex_t, std::shared_ptr<Symbol>>          graph_nodes_;
     symbol_graph_t                  symbol_graph_;
-    vector<Symbol*>                 production_string_;
-    Trajectories*                   trajectories_;
+    std::shared_ptr<Trajectories>        trajectories_;
     vector<bool>                    has_been_covered_;
 
-    // Query Init Features and Classifiers
-    query_init_decision_function    query_init_df_;
-    bool                            query_init_df_is_valid_;
-    vector<query_init_sample_type>  query_init_features_;
-    vector<int>                     query_init_labels_;
-    vector<Vertex>                  query_init_feature_properties_; // x, y, heading
-    
     vector<vector<RoadPt> >         initial_roads_;
-    
-    query_q_decision_function       query_q_df_;
-    bool                            query_q_df_is_valid_;
-    vector<query_q_sample_type>     query_q_features_;
-    vector<int>                     query_q_labels_;
-    vector<Vertex>                  query_q_feature_properties_;
     
     // For visualization
     vector<Vertex>                  feature_vertices_;
@@ -225,7 +102,7 @@ private:
     vector<Vertex>                  points_to_draw_;
     vector<Color>                   point_colors_;
     
-    RoadSymbol*                     new_road;
+    std::shared_ptr<RoadSymbol>          new_road;
     float                           cur_cum_length;
     float                           radius;
     int                             i_road;

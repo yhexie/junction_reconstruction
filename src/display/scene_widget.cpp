@@ -26,17 +26,14 @@ SceneWidget::SceneWidget(QWidget * parent, const QGLWidget * shareWidget, Qt::Wi
     yTrans = 0;
     
     SceneConst::getInstance().setBoundBox(QVector4D(1e10, -1e10, 1e10, -1e10));
-    
-    trajectories_               = new Trajectories(this);
-    road_generator_             = new RoadGenerator(this);
-    feature_selection_mode_     = false;
-    query_init_feature_selector_ = new QueryInitFeatureSelector(this);
-    query_q_feature_selector_ = new QueryQFeatureSelector(this);
-    
+
+    m_program_ = nullptr;
+    trajectories_ = std::move(std::unique_ptr<Trajectories>(new Trajectories(this)));
+    road_generator_ = std::move(std::unique_ptr<RoadGenerator>(new RoadGenerator(this)));
+    osmMap_ = std::move(std::unique_ptr<OpenStreetMap>(new OpenStreetMap(this)));
+    right_click_menu_ = std::move(std::unique_ptr<QMenu>( new QMenu ));
     
     sample_selection_mode       = false;
-    osmMap_                     = new OpenStreetMap(this);
-//    graph_                      = new Graph(this);
     selection_mode_             = false;
     
     scaleFactor_                = 1.0;
@@ -44,7 +41,6 @@ SceneWidget::SceneWidget(QWidget * parent, const QGLWidget * shareWidget, Qt::Wi
     zoomTransX_                 = 0.0f;
     zoomTransY_                 = 0.0f;
     
-    right_click_menu_           = new QMenu;
     right_click_menu_->addAction("Open trajectories", this, SLOT(slotOpenTrajectories()));
     right_click_menu_->addAction("Save trajectories", this, SLOT(slotSaveTrajectories()));
     right_click_menu_->addSeparator();
@@ -71,14 +67,6 @@ SceneWidget::SceneWidget(QWidget * parent, const QGLWidget * shareWidget, Qt::Wi
 
 SceneWidget::~SceneWidget()
 {
-    delete m_program_;
-    delete right_click_menu_;
-    delete trajectories_;
-    delete road_generator_;
-    delete query_init_feature_selector_;
-    delete query_q_feature_selector_;
-    delete osmMap_;
-    //delete graph_;
 }
 
 void SceneWidget::toggleSelectionMode(){
@@ -237,13 +225,11 @@ void SceneWidget::initializeGL(){
     glEnable(GL_BLEND);
     glBlendEquation(GL_SRC_ALPHA | GL_ONE_MINUS_SRC_ALPHA);
     glBlendColor(1.0, 0.0, 0.0, 0.5);
-    m_program_ = new CustomizedShaderProgram(this);
-    trajectories_->setShadderProgram(m_program_);
-    osmMap_->setShadderProgram(m_program_);
-    //graph_->setShadderProgram(m_program_);
-    road_generator_->setShadderProgram(m_program_);
-    query_init_feature_selector_->setShadderProgram(m_program_);
-    query_q_feature_selector_->setShadderProgram(m_program_);
+    m_program_ = std::move(std::unique_ptr<CustomizedShaderProgram>(new CustomizedShaderProgram(this)));
+
+    trajectories_->setShaderProgram(m_program_);
+    osmMap_->setShaderProgram(m_program_);
+    road_generator_->setShaderProgram(m_program_);
     m_program_->link();
 }
 
@@ -254,10 +240,11 @@ void SceneWidget::paintGL(){
     float aspect_ratio = static_cast<float>(width()) / height();
     
     // Gray background
-//    qglClearColor(QColor(220, 220, 220));
+    qglClearColor(QColor(220, 220, 220));
     
     // White background
-    qglClearColor(QColor(255, 255, 255));
+    //qglClearColor(QColor(255, 255, 255));
+    
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     m_program_->bind();
     view_matrix_.setToIdentity();
@@ -330,10 +317,6 @@ void SceneWidget::paintGL(){
     
     // Draw Road Seed Selection
     road_generator_->draw();
-    
-    // Features
-    query_init_feature_selector_->draw();
-    query_q_feature_selector_->draw();
     
     m_program_->release();
 }
@@ -416,8 +399,6 @@ void SceneWidget::slotOpenTrajectories(void)
         emit trajFileLoaded(filename, trajectories_->getNumTraj(), trajectories_->getNumPoint());
         
         road_generator_->setTrajectories(trajectories_);
-        query_init_feature_selector_->setTrajectories(trajectories_);
-        query_q_feature_selector_->setTrajectories(trajectories_);
 	}
     
 	return;
@@ -732,9 +713,6 @@ void SceneWidget::clearData(void){
     trajectories_->clearData();
     osmMap_->clearData();
     feature_selection_mode_ = false;
-    
-    query_init_feature_selector_->clear();
-    query_q_feature_selector_->clear();
     
     road_generator_->clear();
     selection_mode_ = false;

@@ -36,6 +36,8 @@ public:
     virtual ~Symbol() {}
     
     virtual const char* symbolName() const=0;
+
+    virtual bool getDrawingVertices(std::vector<Vertex> &v) { return true; }
     
     friend ostream& operator<<(ostream& os, const Symbol* m){
         os << m->symbolName();
@@ -73,10 +75,6 @@ public:
     const vector<RoadPt>&       centerLine() { return center_line_; }
     vector<bool>&               centerPtVisited() { return center_pt_visited_; }
    
-    const map<int, float>&      trajMinTs() { return traj_min_ts_; }
-    const map<int, float>&      trajMaxTs() { return traj_max_ts_; }
-    
-    
     void addRoadPtAtEnd(RoadPt &pt) {
         center_line_.push_back(pt);
         center_pt_visited_.push_back(false);
@@ -96,14 +94,6 @@ public:
     void clearGPSInfo(){
         covered_pts_.clear();
         covered_pt_scores_.clear();
-        covered_trajs_.clear();
-        cur_max_traj_score_ = 0.0f;
-        cur_min_traj_score_ = 1e10;
-        covered_traj_scores_.clear();
-        covered_traj_aligned_scores_.clear();
-        covered_traj_unaligned_scores_.clear();
-        traj_min_ts_.clear();
-        traj_max_ts_.clear();
     }
     
     bool isOneway() {
@@ -116,21 +106,19 @@ public:
     }
     
     bool containsPt(int);
+    const set<int>& coveredPts() { return covered_pts_; }
+    const map<int, float>& coveredPtScores() { return covered_pt_scores_; }
     
     pair<int, int> stats() {
         pair<int, int> result;
         result.first = covered_pts_.size();
-        result.second = covered_trajs_.size();
         return result;
     }
     
     pair<bool, bool> containsTraj(int);
     
     void insertPt(int pt_idx,
-                  float pt_timestamp,
-                  float probability,
-                  int pt_traj_id,
-                  bool is_aligned);
+                  float probability);
     
     RoadSymbolState&            startState() { return start_state_; }
     RoadSymbolState&            endState()  { return end_state_; }
@@ -150,16 +138,6 @@ private:
     
     set<int>                        covered_pts_; // index of the point contained by this road
     map<int, float>                 covered_pt_scores_; // prpbability of each point belongs to this road
-    set<int>                        covered_trajs_; // index of the trajectory covered by this road
-    map<int, float>                 covered_traj_scores_; // sum of the prpbability of points belongs
-   
-    float                           cur_max_traj_score_;
-    float                           cur_min_traj_score_;
-    
-    map<int, float>                 covered_traj_aligned_scores_; // all true for oneway, for twoway road, this mark whether the traj is in opposite direction to the center line.
-    map<int, float>                 covered_traj_unaligned_scores_; // all true for oneway, for twoway road, this mark whether the traj is in opposite direction to the center line.
-    map<int, float>                 traj_min_ts_; // Each trajectory has a min and max time on this road
-    map<int, float>                 traj_max_ts_;
 };
 
 /////////////////////////////////////////////////////////////////
@@ -172,7 +150,7 @@ public:
     
     ~JunctionSymbol() {};
     
-    void getDrawingVertices(Vertex &v);
+    bool getDrawingVertices(std::vector<Vertex> &v);
     
     const char*                     symbolName() const { return "J"; }
     Eigen::Vector2d&                loc() { return loc_; }
@@ -183,41 +161,6 @@ private:
     Eigen::Vector2d                 loc_; // center of the branch
     vector<RoadSymbol*>             children_; // a the roads associated with this branch
     set<pair<int, int>>             connection_; // the connectivity
-};
-
-/////////////////////////////////////////////////////////////////
-//                      Query Init Symbol
-/////////////////////////////////////////////////////////////////
-class QueryInitSymbol : public Symbol
-{
-public:
-    QueryInitSymbol(RoadSymbol *, QueryState init_state=UNASSIGNED);
-    
-    ~QueryInitSymbol() {};
-   
-    RoadSymbol* getRoad() { return road_; }
-    QueryState& state() { return state_; }
-    
-    const char* symbolName() const
-    { return "?I"; }
-    
-private:
-    QueryState      state_;
-    RoadSymbol*     road_;
-};
-
-/////////////////////////////////////////////////////////////////
-//                      Terminal Symbol
-/////////////////////////////////////////////////////////////////
-class TerminalSymbol : public Symbol
-{
-public:
-    TerminalSymbol();
-    
-    ~TerminalSymbol() {};
-    
-    const char* symbolName() const
-    { return "E"; }
 };
 
 #endif //SYMBOL_H_

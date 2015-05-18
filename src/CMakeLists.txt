@@ -3,15 +3,17 @@ cmake_minimum_required(VERSION 2.8.11)
 # OpenCV
 #find_package(OpenCV REQUIRED)
 
+# Boost
+set(Boost_USE_STATIC_LIBS  ON)
+set(Boost_USE_MULTITHREADED ON)  
+set(Boost_USE_STATIC_RUNTIME OFF)
+find_package(Boost REQUIRED system filesystem)
+include_directories(${Boost_INCLUDE_DIRS})
+
 # PCL
-find_package(PCL REQUIRED common io)
+find_package(PCL REQUIRED common kdtree search)
 include_directories(${PCL_INCLUDE_DIRS})
 include_directories(${FLANN_INCLUDE_DIRS})
-
-# PCL Wrapper
-add_subdirectory(pcl_wrapper EXCLUDE_FROM_ALL) 
-#add_subdirectory(pcl_wrapper) 
-include_directories(pcl_wrapper/include)
 
 # CGAL
 find_package(CGAL QUIET COMPONENTS Core ) # CGAL
@@ -36,10 +38,6 @@ set(PROJ_LIBRARIES "/usr/local/lib/libproj.dylib")
 find_package(BZIP2 REQUIRED)
 include_directories(${BZIP_INCLUDE_DIRS})
 include_directories("osmium/include")
-
-# Dlib
-include(pkgs/dlib-18.14/dlib/cmake)
-include_directories("pkgs/opengm//include")
 
 # Qt 
 set(CMAKE_AUTOMOC ON)
@@ -105,12 +103,13 @@ ENDIF (${CMAKE_BUILD_TOOL} MATCHES "devenv")
 set(exe_name junction_reconstruction)
 add_executable(${exe_name} ${ui_srcs} ${moc_srcs} ${resource_srcs} ${srcs} ${incs})
 target_link_libraries(${exe_name} 
-    #${OpenCV_LIBS}
-    pcl_wrapper
     ${CGAL_LIBRARIES}
     ${OPENGL_LIBRARIES}
-    #${OpenCV_LIBS}
-    dlib
+    ${Boost_SYSTEM_LIBRARY} 
+    ${Boost_FILESYSTEM_LIBRARY}
+    ${PCL_COMMON_LIBRARY} 
+    ${PCL_KDTREE_LIBRARY}
+    ${PCL_SEARCH_LIBRARY}
     Qt5::Core Qt5::Widgets Qt5::OpenGL Qt5::Xml Qt5::Concurrent
     ${PROTOBUF_LIBRARIES}
     ${EXPAT_LIBRARIES}
