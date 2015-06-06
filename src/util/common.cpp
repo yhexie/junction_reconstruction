@@ -97,7 +97,7 @@ void peakDetector(vector<float>& hist,
                 if (hist_idx >= hist.size()) {
                     hist_idx = hist_idx % hist.size();
                 }
-                if (hist[hist_idx] >= hist[i]) {
+                if (hist[hist_idx] > hist[i]) {
                     is_max = false;
                     break;
                 }
@@ -321,26 +321,58 @@ void smoothCurve(vector<RoadPt>& center_line, bool fix_front){
     if(center_line.size() < 2){
         return;
     }
-    
+
+    // Smooth heading
+    int half_window_size = 2;
+    float cum_length = 0.0f;
+    for(int i = 0; i < center_line.size(); ++i){
+        Eigen::Vector2d cum_vec(0.0f, 0.0f);
+        for(int j = i - half_window_size; j <= i + half_window_size; ++j){
+            if(j < 0 || j >= center_line.size())
+                continue;
+            cum_vec += headingTo2dVector(center_line[j].head);
+        }
+
+        center_line[i].head = vector2dToHeading(cum_vec);
+
+        if(i > 0){
+            float delta_x = center_line[i].x - center_line[i-1].x;
+            float delta_y = center_line[i].y - center_line[i-1].y;
+            cum_length += sqrt(delta_x*delta_x + delta_y*delta_y);
+        }
+    }
+
+    float delta = 15.0f; // simplify center_line
+    int N = ceil(center_line.size() * delta / cum_length);
+
+    vector<RoadPt> tmp_center_line;
+    for(int i = 0; i < center_line.size(); i = i+N){
+        tmp_center_line.emplace_back(RoadPt(center_line[i]));
+    }
+
+    if((center_line.size() - 1) % N != 0){
+        tmp_center_line.emplace_back(RoadPt(center_line.back()));
+    }
+
     vector<float> orig_xs;
     vector<float> orig_ys;
-    for (int i = 0; i < center_line.size(); ++i) {
-        orig_xs.push_back(center_line[i].x);
-        orig_ys.push_back(center_line[i].y);
+    for (int i = 0; i < tmp_center_line.size(); ++i) {
+        orig_xs.push_back(tmp_center_line[i].x);
+        orig_ys.push_back(tmp_center_line[i].y);
     }
     
     if(fix_front){
-        float orig_last_x = center_line.back().x;
-        float orig_last_y = center_line.back().y;
+        float orig_last_x = tmp_center_line.back().x;
+        float orig_last_y = tmp_center_line.back().y;
         int max_iter = 1000;
         int i_iter = 0;
         while(i_iter <= max_iter){
             i_iter++;
             float cum_change = 0.0f;
-            for(int i = 1; i < center_line.size() - 1; ++i){
-                RoadPt& cur_pt = center_line[i];
-                RoadPt& prev_pt = center_line[i-1];
-                RoadPt& nxt_pt = center_line[i+1];
+            for(int i = 1; i < tmp_center_line.size() - 1; ++i){
+                RoadPt& cur_pt = tmp_center_line[i];
+                RoadPt& prev_pt = tmp_center_line[i-1];
+                RoadPt& nxt_pt = tmp_center_line[i+1];
                 Eigen::Vector2d prev_dir = headingTo2dVector(prev_pt.head);
                 Eigen::Vector2d nxt_dir = headingTo2dVector(nxt_pt.head);
                 Eigen::Vector2d prev_perp_dir(-prev_dir[1], prev_dir[0]);
@@ -370,9 +402,9 @@ void smoothCurve(vector<RoadPt>& center_line, bool fix_front){
             }
             
             // Update last point
-            int last_idx = center_line.size()-1;
-            RoadPt& cur_pt = center_line[last_idx];
-            RoadPt& prev_pt = center_line[last_idx-1];
+            int last_idx = tmp_center_line.size()-1;
+            RoadPt& cur_pt = tmp_center_line[last_idx];
+            RoadPt& prev_pt = tmp_center_line[last_idx-1];
             Eigen::Vector2d prev_dir = headingTo2dVector(prev_pt.head);
             Eigen::Vector2d cur_dir = headingTo2dVector(cur_pt.head);
             Eigen::Vector2d prev_perp_dir(-prev_dir[1], prev_dir[0]);
@@ -401,24 +433,24 @@ void smoothCurve(vector<RoadPt>& center_line, bool fix_front){
                 cur_pt.y = new_y;
             }
             
-            if (cum_change < 0.1f) {
+            if (cum_change < 0.01f) {
                 break;
             }
         }
     }
     else{
-        float orig_first_x = center_line.front().x;
-        float orig_first_y = center_line.front().y;
+        float orig_first_x = tmp_center_line.front().x;
+        float orig_first_y = tmp_center_line.front().y;
         int max_iter = 100;
         int i_iter = 0;
         while(i_iter <= max_iter){
             i_iter++;
             float cum_change = 0.0f;
             
-            for(int i = center_line.size() - 2; i > 0; --i){
-                RoadPt& cur_pt = center_line[i];
-                RoadPt& prev_pt = center_line[i-1];
-                RoadPt& nxt_pt = center_line[i+1];
+            for(int i = tmp_center_line.size() - 2; i > 0; --i){
+                RoadPt& cur_pt = tmp_center_line[i];
+                RoadPt& prev_pt = tmp_center_line[i-1];
+                RoadPt& nxt_pt = tmp_center_line[i+1];
                 Eigen::Vector2d prev_dir = headingTo2dVector(prev_pt.head);
                 Eigen::Vector2d nxt_dir = headingTo2dVector(nxt_pt.head);
                 Eigen::Vector2d prev_perp_dir(-prev_dir[1], prev_dir[0]);
@@ -448,8 +480,8 @@ void smoothCurve(vector<RoadPt>& center_line, bool fix_front){
             }
             
             // Update first point
-            RoadPt& cur_pt = center_line[0];
-            RoadPt& nxt_pt = center_line[1];
+            RoadPt& cur_pt = tmp_center_line[0];
+            RoadPt& nxt_pt = tmp_center_line[1];
             Eigen::Vector2d nxt_dir = headingTo2dVector(nxt_pt.head);
             Eigen::Vector2d cur_dir = headingTo2dVector(cur_pt.head);
             Eigen::Vector2d nxt_perp_dir(-nxt_dir[1], nxt_dir[0]);
@@ -478,10 +510,34 @@ void smoothCurve(vector<RoadPt>& center_line, bool fix_front){
                 cur_pt.y = new_y;
             }
             
-            if (cum_change < 0.1f) {
+            if (cum_change < 0.01f) {
                 break;
             }
         }
+    }
+
+    center_line.clear();
+    // Interpolate
+    float resolution = 5.0f; // in meters 
+    center_line.emplace_back(tmp_center_line[0]);
+    for(int i = 1; i < tmp_center_line.size(); ++i){
+        Eigen::Vector2d vec(tmp_center_line[i].x - tmp_center_line[i-1].x,
+                                tmp_center_line[i].y - tmp_center_line[i-1].y);
+        float delta_d = vec.norm();
+
+        if(delta_d > resolution){
+            int n_to_insert = floor(delta_d / resolution);
+            float d = delta_d / (n_to_insert + 1);
+            vec.normalize();
+            for(int j = 0; j < n_to_insert; ++j){
+                RoadPt new_pt(tmp_center_line[i-1]);
+                new_pt.x = tmp_center_line[i-1].x + (j+1) * d * vec.x();
+                new_pt.y = tmp_center_line[i-1].y + (j+1) * d * vec.y();
+                center_line.emplace_back(new_pt);
+            }
+        }
+
+        center_line.emplace_back(tmp_center_line[i]);
     }
 }
 
@@ -856,6 +912,10 @@ void adjustRoadCenterAt(RoadPt&             r_pt,
                         float               delta_bin,
                         float               sigma_s,
                         bool                pt_id_sample_store_weight){
+    /*
+     *We will do a parallel bin voting to determine the true location of the road and the width of the road
+     */
+
     PclPoint pt;
     pt.setCoordinate(r_pt.x, r_pt.y, 0.0f);
     pt.head = r_pt.head;
@@ -900,10 +960,6 @@ void adjustRoadCenterAt(RoadPt&             r_pt,
     for (vector<int>::iterator it = k_indices.begin(); it != k_indices.end(); ++it) {
         PclPoint& nb_pt = points->at(*it);
         float delta_heading = abs(deltaHeading1MinusHeading2(nb_pt.head, pt.head));
-        
-        if (!r_pt.is_oneway && delta_heading > 90.0f) {
-            delta_heading = 180.0f - delta_heading;
-        }
         
         if (delta_heading < heading_threshold) {
             Eigen::Vector3d vec(nb_pt.x - pt.x,
@@ -958,7 +1014,7 @@ void adjustRoadCenterAt(RoadPt&             r_pt,
         } 
     } 
     
-    float width_ratio = 0.6f;
+    float width_ratio = 0.8f;
     if(max_idx != -1){
         float avg_perp_dist = (max_idx + 0.5f) * delta_bin - search_radius;
         Eigen::Vector2d perp_dir_2d(pt_perp_dir.x(), pt_perp_dir.y());

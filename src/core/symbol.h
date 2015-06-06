@@ -96,15 +96,6 @@ public:
         covered_pt_scores_.clear();
     }
     
-    bool isOneway() {
-        if(center_line_.size() == 0){
-            return false;
-        }
-        else{
-            return center_line_[0].is_oneway;
-        }
-    }
-    
     bool containsPt(int);
     const set<int>& coveredPts() { return covered_pts_; }
     const map<int, float>& coveredPtScores() { return covered_pt_scores_; }

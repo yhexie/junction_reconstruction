@@ -388,13 +388,19 @@ bool Trajectories::loadPBF(const string &filename){
     point.setNormal(0, 0, 1);
     
     uint32_t num_trajectory;
-    
+
     QVector4D bound_box = QVector4D(SceneConst::getInstance().getBoundBox());
     
     if (!coded_input->ReadLittleEndian32(&num_trajectory)) {
         return false; // possibly end of file
     }
-    
+
+    if(num_trajectory > 1e9){
+        cout << "ERROR: More than 1e9 trajectories detected from loadPBF!" << endl;
+        cout << "\tnum_traj: " << num_trajectory << endl;
+        return false;
+    }
+
     trajectories_.resize(num_trajectory, vector<int>());
     for (size_t id_traj = 0; id_traj < num_trajectory; ++id_traj) {
         uint32_t length;
@@ -629,7 +635,7 @@ void Trajectories::prepareForVisualization(){
             tmp_color.alpha = 1.0f;
         }
         
-        float speed_line_length = speed / scale_factor_;
+        float speed_line_length = (speed + 1.0f) / scale_factor_;
         Eigen::Vector2d speed_dir = speed_line_length * headingTo2dVector(data_->at(i).head);
         vertex_speed_indices_.push_back(vertex_speed_.size());
         vertex_speed_.push_back(Vertex(v.x, v.y, Z_TRAJECTORY_SPEED));

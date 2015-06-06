@@ -69,50 +69,29 @@ struct RoadPt{
     float x;
     float y;
     int   head;
-    bool  is_oneway;
     int   n_lanes;
     
     RoadPt() {
         x = 0.0f;
         y = 0.0f;
         head = 0;
-        is_oneway = true;
         n_lanes = 1;
     }
     
     RoadPt(float tx,
            float ty,
            int thead,
-           bool tOneway,
            int tLanes) : x(tx),
                         y(ty),
                         head(thead),
-                        is_oneway(tOneway),
                         n_lanes(tLanes) {}
     
     RoadPt(float tx,
            float ty,
-           int thead,
-           bool tOneway) :  x(tx),
+           int thead) :  x(tx),
                             y(ty),
-                            head(thead),
-                            is_oneway(tOneway)
+                            head(thead)
     {
-        if(tOneway){
-            n_lanes = 1;
-        }
-        else{
-            n_lanes = 2;
-        }
-    }
-    
-    RoadPt(float tx,
-           float ty,
-           int thead) : x(tx),
-                        y(ty),
-                        head(thead)
-    {
-        is_oneway = true;
         n_lanes = 1;
     }
     
@@ -120,7 +99,6 @@ struct RoadPt{
         x = pt.x;
         y = pt.y;
         head = pt.head;
-        is_oneway = pt.is_oneway;
         n_lanes = pt.n_lanes;
     }
 };
