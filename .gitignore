@@ -7,3 +7,4 @@ src/pkgs/
 *.pbf
 *.swp
 *.pyc
+.vim-bookmarks
