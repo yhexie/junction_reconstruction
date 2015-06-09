@@ -49,9 +49,10 @@ struct RoadGraphNode{
     int                 road_label = -1; // The index of corresponding road. NOTE: even if the node is a junction, road_label is still valid, which denotes the continuity of a road through a junction.
     int                 idx_in_road = -1; // The index in the corresponding road
     bool                inferred = false; // if this is true, meaning this road node is inferred which could be removed later.
+    bool                is_valid = true; // Will remove the node if (is_valid == false);
 
     // Parameters for road node. Valid if type == RoadGraphNodeType::junction
-    int                 junction_label = -1;     
+    //int                 junction_label = -1;     
     // auxiliary entries
     int                 cluster_id = -1; // used for clustering nodes to form junctions
 };

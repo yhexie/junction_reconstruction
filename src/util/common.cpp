@@ -72,8 +72,9 @@ void peakDetector(vector<float>& hist,
     // Detecting peaks in a histogram
     //is_closed: true - loop around; false: do not loop around.
     // ratio should >= 1.0f
-    
     peak_idxs.clear();
+
+    vector<int> raw_peak_idxs;
     int left_offset = window / 2;
     int right_offset = window - left_offset;
     
@@ -117,7 +118,7 @@ void peakDetector(vector<float>& hist,
                 float d2 = avg_value - min_value;
                 
                 if (d1 > ratio * d2) {
-                    peak_idxs.push_back(i);
+                    raw_peak_idxs.push_back(i);
                 }
             }
         }
@@ -164,12 +165,30 @@ void peakDetector(vector<float>& hist,
                 float d2 = avg_value - min_value;
                 
                 if (d1 > ratio * d2) {
-                    peak_idxs.push_back(i);
+                    raw_peak_idxs.push_back(i);
                 }
             }
         }
     }
-    
+
+    std::sort(raw_peak_idxs.begin(), raw_peak_idxs.end()); 
+    for(int i = 0; i < raw_peak_idxs.size(); ++i){
+        if(i > 0){
+            int delta_to_previous = abs(raw_peak_idxs[i-1] - raw_peak_idxs[i]);
+            if(is_closed){
+                if(delta_to_previous > 0.5f * hist.size()){
+                    delta_to_previous = hist.size() - delta_to_previous;
+                }
+            }
+            if(delta_to_previous > 0.5f * window){
+                peak_idxs.emplace_back(raw_peak_idxs[i]);
+            }
+        }
+        else{
+            peak_idxs.emplace_back(raw_peak_idxs[i]);
+        }
+    }
+
     // Debug
 //    if (!is_closed) {
 //        cout << "hist: "<<endl;
