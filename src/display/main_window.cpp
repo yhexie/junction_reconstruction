@@ -147,6 +147,9 @@ void MainWindow::init(void)
     connect(ui_->roadGeneratorDevelopRoadNetwork, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorDevelopRoadNetwork()));
     connect(ui_->roadGeneratorLocalAdjustment, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorLocalAdjustment()));
     connect(ui_->roadGeneratorMCMCOptimization, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorMCMCOptimization()));
+
+    connect(ui_->showGeneratedMap, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotRoadGeneratorSetGeneratedMapShowOption(int)));
+    connect(ui_->generatedMapRenderMode, SIGNAL(currentIndexChanged(int)), ui_->scene_widget, SLOT(slotRoadGeneratorSetGeneratedMapRenderingMode(int)));
     
     // Parameters
     connect(ui_->parameterSearchRadius, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotParameterSearchRadiusChanged(double)));

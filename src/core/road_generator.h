@@ -69,6 +69,11 @@ typedef boost::adjacency_list<boost::vecS, boost::vecS, boost::bidirectionalS, R
 typedef boost::graph_traits<road_graph_t>::vertex_descriptor road_graph_vertex_descriptor;
 typedef boost::graph_traits<road_graph_t>::edge_descriptor road_graph_edge_descriptor;
 
+enum class GeneratedMapRenderingMode{
+    realistic = 0,
+    skeleton = 1
+};
+
 class RoadGenerator : public Renderable
 {
 public:
@@ -88,6 +93,7 @@ public:
     bool updateRoadPointCloud();
     bool addInitialRoad();
     void recomputeRoads();
+    void prepareGeneratedMap();
     void connectRoads();
     
     void tmpFunc();
@@ -113,6 +119,25 @@ public:
     
     // Rendering
     void draw();
+    void setShowGeneratedMap(bool v){
+        show_generated_map_ = v;
+    }
+
+    void setGeneratedMapRenderMode(int v){
+        switch (v) { 
+            case 0: { 
+                generated_map_render_mode_ = GeneratedMapRenderingMode::realistic;
+            } 
+            break; 
+            case 1: {
+                generated_map_render_mode_ = GeneratedMapRenderingMode::skeleton;
+            }
+        
+            default: { 
+            } 
+            break; 
+        } 
+    }
     
     // Clear
     void clear();
@@ -143,10 +168,20 @@ private:
     int                                           max_junc_label_;
     int                                           cur_num_clusters_;
 
+    // Visualize generated map
+    bool                                          show_generated_map_;
+    GeneratedMapRenderingMode                     generated_map_render_mode_;
+    vector<Vertex>                                generated_map_points_;
+    vector<Color>                                 generated_map_point_colors_; 
+    vector<vector<Vertex>>                        generated_map_line_loops_;
+    vector<vector<Color>>                         generated_map_line_loop_colors_;
+    vector<Vertex>                                generated_map_lines_;
+    vector<Color>                                 generated_map_line_colors_;
+
     // For visualization
     vector<Vertex>                                feature_vertices_;
     vector<Color>                                 feature_colors_;
-    
+
     // For DEBUG usage
     bool                                          debug_mode_;
     int                                           tmp_;

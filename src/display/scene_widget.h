@@ -80,6 +80,8 @@ signals:
     void slotRoadGeneratorDevelopRoadNetwork();
     void slotRoadGeneratorLocalAdjustment();
     void slotRoadGeneratorMCMCOptimization();
+    void slotRoadGeneratorSetGeneratedMapShowOption(int);
+    void slotRoadGeneratorSetGeneratedMapRenderingMode(int);
     
     // Features
     

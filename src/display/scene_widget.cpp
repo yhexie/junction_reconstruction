@@ -61,8 +61,9 @@ SceneWidget::SceneWidget(QWidget * parent, const QGLWidget * shareWidget, Qt::Wi
     
     Parameters::getInstance().branchPredictorExtensionRatio() = MainWindow::getInstance()->getUi()->parameterBranchPredictorExtensionRatio->value();
     Parameters::getInstance().branchPredictorMaxTExtension() = MainWindow::getInstance()->getUi()->parameterBranchPredictorMaxTExtension->value();
-    
-//    show_graph_ = true;
+
+    road_generator_->setGeneratedMapRenderMode(MainWindow::getInstance()->getUi()->showGeneratedMap->checkState());
+    road_generator_->setGeneratedMapRenderMode(MainWindow::getInstance()->getUi()->generatedMapRenderMode->currentIndex());
 }
 
 SceneWidget::~SceneWidget()
@@ -622,6 +623,19 @@ void SceneWidget::slotRoadGeneratorLocalAdjustment(){
 
 void SceneWidget::slotRoadGeneratorMCMCOptimization(){
     
+}
+
+void SceneWidget::slotRoadGeneratorSetGeneratedMapShowOption(int state){
+    if (state == Qt::Unchecked)
+        road_generator_->setShowGeneratedMap(false);
+    else
+        road_generator_->setShowGeneratedMap(true);
+    updateGL();
+}
+
+void SceneWidget::slotRoadGeneratorSetGeneratedMapRenderingMode(int index){
+    road_generator_->setGeneratedMapRenderMode(index);
+    updateGL();
 }
 
 /*
