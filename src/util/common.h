@@ -22,7 +22,7 @@ typedef RichPoint                       PclPoint;
 typedef pcl::PointCloud<PclPoint>       PclPointCloud;
 typedef pcl::search::Search<PclPoint>   PclSearchTree;
 
-static const float POSITIVE_INFINITY = 1e6;
+static const float POSITIVE_INFINITY = 1e9;
 static const float LANE_WIDTH        = 3.7f; // in meters
 
 // Visualization Z values

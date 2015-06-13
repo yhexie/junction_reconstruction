@@ -401,7 +401,7 @@ bool Trajectories::loadPBF(const string &filename){
         return false;
     }
 
-    trajectories_.resize(num_trajectory, vector<int>());
+    trajectories_.clear();
     for (size_t id_traj = 0; id_traj < num_trajectory; ++id_traj) {
         uint32_t length;
         if (!coded_input->ReadLittleEndian32(&length)) {
@@ -414,11 +414,7 @@ bool Trajectories::loadPBF(const string &filename){
             return false;
         }
         coded_input->PopLimit(limit);
-        
-        // Add the points to point cloud and trajectory
-        vector<int>& trajectory=trajectories_[id_traj];
-        trajectory.resize(new_traj.point_size());
-        
+
         if (id_traj == 0) {
             // Check if the x, y field of new_traj point is correct according to current projector. If not, we will reporject all x, y field from lat lon coordinate.
             float x;
@@ -430,7 +426,14 @@ bool Trajectories::loadPBF(const string &filename){
                 has_correct_projection = true;
             }
         }
-        
+
+        if(id_traj % 10 >= 5){
+            continue;
+        }
+
+        // Add the points to point cloud and trajectory
+        vector<int> trajectory;
+        trajectory.resize(new_traj.point_size());
         if (has_correct_projection) {
             for (int pt_idx=0; pt_idx < new_traj.point_size(); ++pt_idx) {
                 if (new_traj.point(pt_idx).x() < bound_box[0]) {
@@ -502,6 +505,12 @@ bool Trajectories::loadPBF(const string &filename){
                 point.lon = new_traj.point(pt_idx).lon();
                 point.lat = new_traj.point(pt_idx).lat();
                 point.speed = new_traj.point(pt_idx).speed();
+
+                if(point.speed > max_speed_)
+                    max_speed_ = point.speed;
+                if(point.speed < min_speed_)
+                    min_speed_ = point.speed;
+                avg_speed_ += point.speed;
                 
                 int new_traj_point_head = 450 - new_traj.point(pt_idx).head();
                 if (new_traj_point_head > 360) {
@@ -514,6 +523,7 @@ bool Trajectories::loadPBF(const string &filename){
                 data_->push_back(point);
             }
         }
+        trajectories_.emplace_back(trajectory);
     }
     
     close(fid);
@@ -525,7 +535,7 @@ bool Trajectories::loadPBF(const string &filename){
     
     delete raw_input;
     delete coded_input;
-    printf("Loading completed. %d trajectories loaded. Totally %zu points. Average speed is: %.2fm/s\n", num_trajectory, data_->size(), avg_speed_ / 100.0f);
+    printf("Loading completed. %zu trajectories loaded. Totally %zu points. Average speed is: %.2fm/s\n", trajectories_.size(), data_->size(), avg_speed_ / 100.0f);
     return true;
 }
 

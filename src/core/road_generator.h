@@ -48,7 +48,6 @@ struct RoadGraphNode{
     // Parameters for road node. Valid if type == RoadGraphNodeType::road
     int                 road_label = -1; // The index of corresponding road. NOTE: even if the node is a junction, road_label is still valid, which denotes the continuity of a road through a junction.
     int                 idx_in_road = -1; // The index in the corresponding road
-    bool                inferred = false; // if this is true, meaning this road node is inferred which could be removed later.
     bool                is_valid = true; // Will remove the node if (is_valid == false);
 
     // Parameters for road node. Valid if type == RoadGraphNodeType::junction
@@ -59,7 +58,7 @@ struct RoadGraphNode{
 
 struct RoadGraphEdge{
     RoadGraphEdgeType type = RoadGraphEdgeType::normal;
-    float length = 1e9;
+    float length = POSITIVE_INFINITY;
 
     // Parameter for RoadGraphEdgeType::linking
     int link_support = 0;
@@ -84,12 +83,11 @@ public:
         trajectories_ = new_trajectories;
     }
     
-    void applyRules();
-    
-    void pointBasedVoting();
+    void pointBasedVoting(); 
     void computeVoteLocalMaxima();
     void pointBasedVotingVisualization();
     bool computeInitialRoadGuess();
+    void computeUnexplainedGPSPoints();
     bool updateRoadPointCloud();
     bool addInitialRoad();
     void recomputeRoads();
@@ -99,24 +97,16 @@ public:
     void tmpFunc();
     
     // Trajectory - Road projection
-    float shortestPath(int start, int target, vector<int>& path);
-    void mapMatching(size_t traj_idx, vector<int>& projection);
-    void partialMapMatching(size_t traj_idx, vector<int>& projection);    
+    float shortestPath(road_graph_vertex_descriptor source, road_graph_vertex_descriptor target, vector<road_graph_vertex_descriptor>& path);
+    bool mapMatching(size_t traj_idx, vector<road_graph_vertex_descriptor>& projection);
+    void partialMapMatching(size_t traj_idx, vector<int>& projection, float cut_off_probability);    
 
     void computeGPSPointsOnRoad(const vector<RoadPt>& road,
                                 set<int>& results); 
 
-    // Grammar
-    void production();
-    void resolveQuery();
-    
-    // Util
-    void localAdjustment();
-    void updatePointCloud();
-    
-    // Road relationship
-    void refit();
-    
+    // Evaluation
+    void evaluationMapMatching(); 
+
     // Rendering
     void draw();
     void setShowGeneratedMap(bool v){
@@ -154,10 +144,14 @@ private:
     PclSearchTree::Ptr                            grid_point_search_tree_;
     vector<float>                                 grid_votes_;
     vector<bool>                                  grid_is_local_maximum_;
+
+    bool                                          has_unexplained_gps_pts_;
+    vector<int>                                   unexplained_gps_pt_idxs_;
     
     std::shared_ptr<Trajectories>                 trajectories_;
 
     vector<vector<RoadPt>>                        road_pieces_;
+    float                                         min_road_length_;
 
     // Graph as the road network
     road_graph_t                                  road_graph_;
@@ -168,6 +162,10 @@ private:
     int                                           max_junc_label_;
     int                                           cur_num_clusters_;
 
+    // Evaluation
+    vector<vector<road_graph_vertex_descriptor>>  map_matched_trajectories_;
+    int                                           test_i_;
+
     // Visualize generated map
     bool                                          show_generated_map_;
     GeneratedMapRenderingMode                     generated_map_render_mode_;
@@ -177,6 +175,8 @@ private:
     vector<vector<Color>>                         generated_map_line_loop_colors_;
     vector<Vertex>                                generated_map_lines_;
     vector<Color>                                 generated_map_line_colors_;
+    vector<Vertex>                                generated_map_links_;
+    vector<Color>                                 generated_map_link_colors_;
 
     // For visualization
     vector<Vertex>                                feature_vertices_;

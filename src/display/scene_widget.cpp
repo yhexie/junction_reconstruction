@@ -607,22 +607,28 @@ void SceneWidget::slotRoadGeneratorAddInitialRoad(){
     updateGL();
 }
 
+void SceneWidget::slotRoadGeneratorComputeUnexplainedGPSPoints(){
+    if (trajectories_->isEmpty()){
+        QMessageBox msgBox;
+        msgBox.setText("Please load trajectory file.");
+        msgBox.exec();
+        return;
+    }
+    
+    road_generator_->computeUnexplainedGPSPoints();
+    
+    updateGL();
+}
+
 void SceneWidget::slotRoadGeneratorTmp(){
     road_generator_->tmpFunc();
     
     updateGL();
 }
 
-void SceneWidget::slotRoadGeneratorDevelopRoadNetwork(){
-    
-}
-
-void SceneWidget::slotRoadGeneratorLocalAdjustment(){
-    
-}
-
-void SceneWidget::slotRoadGeneratorMCMCOptimization(){
-    
+void SceneWidget::slotRoadGeneratorEvaluationMapMatching(){
+    road_generator_->evaluationMapMatching();
+    updateGL();
 }
 
 void SceneWidget::slotRoadGeneratorSetGeneratedMapShowOption(int state){

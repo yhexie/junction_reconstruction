@@ -76,10 +76,9 @@ signals:
     void slotRoadGeneratorPointBasedVoting();
     void slotRoadGeneratorComputeInitialRoadGuess();
     void slotRoadGeneratorAddInitialRoad();
+    void slotRoadGeneratorComputeUnexplainedGPSPoints();
     void slotRoadGeneratorTmp();
-    void slotRoadGeneratorDevelopRoadNetwork();
-    void slotRoadGeneratorLocalAdjustment();
-    void slotRoadGeneratorMCMCOptimization();
+    void slotRoadGeneratorEvaluationMapMatching();
     void slotRoadGeneratorSetGeneratedMapShowOption(int);
     void slotRoadGeneratorSetGeneratedMapRenderingMode(int);
     

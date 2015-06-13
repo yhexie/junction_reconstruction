@@ -143,10 +143,10 @@ void MainWindow::init(void)
     connect(ui_->roadGeneratorPointBasedVoting, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorPointBasedVoting()));
     connect(ui_->roadGeneratorComputeInitialRoadGuess, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorComputeInitialRoadGuess()));
     connect(ui_->roadGeneratorAddInitialRoad, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorAddInitialRoad()));
+    connect(ui_->roadGeneratorComputeUnexplainedGPSPoints, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorComputeUnexplainedGPSPoints()));
     connect(ui_->roadGeneratorTmp, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorTmp()));
-    connect(ui_->roadGeneratorDevelopRoadNetwork, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorDevelopRoadNetwork()));
-    connect(ui_->roadGeneratorLocalAdjustment, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorLocalAdjustment()));
-    connect(ui_->roadGeneratorMCMCOptimization, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorMCMCOptimization()));
+
+    connect(ui_->roadGeneratorEvaluationMapMatching, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorEvaluationMapMatching()));
 
     connect(ui_->showGeneratedMap, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotRoadGeneratorSetGeneratedMapShowOption(int)));
     connect(ui_->generatedMapRenderMode, SIGNAL(currentIndexChanged(int)), ui_->scene_widget, SLOT(slotRoadGeneratorSetGeneratedMapRenderingMode(int)));
