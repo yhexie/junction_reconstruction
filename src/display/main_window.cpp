@@ -130,9 +130,7 @@ void MainWindow::init(void)
     connect(ui_->scene_widget, SIGNAL(trajFileLoaded(QString &, const size_t &, const size_t &)), this, SLOT(slotTrajFileLoaded(QString &, const size_t &, const size_t &)));
     connect(ui_->showDirection, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotSetShowDirection(int)));
     connect(ui_->utmZoneSelector, SIGNAL(currentIndexChanged(int)), this, SLOT(slotSetUTMZone(int)));
-        // Sample View
-    connect(ui_->showSampleCheckBox, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotSetShowSamples(int)));
-    connect(ui_->scene_widget, SIGNAL(newSamplesDrawn(QString &)), this, SLOT(slotNewSamplesDrawn(QString &)));
+    connect(ui_->showTrajectory, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotSetShowTrajectory(int)));
     
     // Map View
     connect(ui_->showMapCheckBox, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotSetShowMap(int)));
@@ -146,7 +144,11 @@ void MainWindow::init(void)
     connect(ui_->roadGeneratorComputeUnexplainedGPSPoints, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorComputeUnexplainedGPSPoints()));
     connect(ui_->roadGeneratorTmp, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorTmp()));
 
+        // Road Generator Evaluation
     connect(ui_->roadGeneratorEvaluationMapMatching, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorEvaluationMapMatching()));
+    connect(ui_->roadGeneratorEvaluationMapMatchingToOsm, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorEvaluationMapMatchingToOsm()));
+    connect(ui_->roadGeneratorEvaluationCompareDistance, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorEvaluationCompareDistance()));
+    connect(ui_->roadGeneratorEvaluationShowTrajectory, SIGNAL(clicked()), ui_->scene_widget, SLOT(slotRoadGeneratorEvaluationShowTrajectory()));
 
     connect(ui_->showGeneratedMap, SIGNAL(stateChanged(int)), ui_->scene_widget, SLOT(slotRoadGeneratorSetGeneratedMapShowOption(int)));
     connect(ui_->generatedMapRenderMode, SIGNAL(currentIndexChanged(int)), ui_->scene_widget, SLOT(slotRoadGeneratorSetGeneratedMapRenderingMode(int)));
@@ -161,9 +163,6 @@ void MainWindow::init(void)
     connect(ui_->parameterRoadSigmaW, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotParameterRoadSigmaWValueChanged(double)));
     connect(ui_->parameterRoadVoteGridSize, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotParameterRoadVoteGridSizeValueChanged(double)));
     connect(ui_->parameterRoadVoteThreshold, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotParameterRoadVoteThresholdValueChanged(double)));
-    
-    connect(ui_->parameterBranchPredictorExtensionRatio, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotParameterBranchPredictorExtensionRatioChanged(double)));
-    connect(ui_->parameterBranchPredictorMaxTExtension, SIGNAL(valueChanged(double)), ui_->scene_widget, SLOT(slotParameterBranchPredictorMaxTExtension(double)));
     
     // Clear All
     connect(ui_->actionClearAll, SIGNAL(triggered()), ui_->scene_widget, SLOT(slotClearAll()));
@@ -227,10 +226,6 @@ void MainWindow::slotOsmFileLoaded(QString &filename){
     QFileInfo info(filename);
     QTextStream(&str) << info.baseName() << "." << info.completeSuffix() <<" is loaded.";
     ui_->mapInfo->setText(str);
-}
-
-void MainWindow::slotNewSamplesDrawn(QString &info){
-    ui_->sampleInfoLabel->setText(info);
 }
 
 void MainWindow::slotSetUTMZone(int index){

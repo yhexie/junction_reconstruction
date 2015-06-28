@@ -47,6 +47,9 @@ SceneWidget::SceneWidget(QWidget * parent, const QGLWidget * shareWidget, Qt::Wi
     right_click_menu_->addAction("Open OSM", this, SLOT(slotOpenOsmMap()));
     
     show_map_ = true;
+
+    // Initialize trajectory display parameter
+    trajectories_->setShowTrajectory(MainWindow::getInstance()->getUi()->showTrajectory->checkState());
     
     // Initialize parameters
     Parameters::getInstance().searchRadius() = MainWindow::getInstance()->getUi()->parameterSearchRadius->value();
@@ -59,9 +62,6 @@ SceneWidget::SceneWidget(QWidget * parent, const QGLWidget * shareWidget, Qt::Wi
     Parameters::getInstance().roadVoteGridSize() = MainWindow::getInstance()->getUi()->parameterRoadVoteGridSize->value();
     Parameters::getInstance().roadVoteThreshold() = MainWindow::getInstance()->getUi()->parameterRoadVoteThreshold->value();
     
-    Parameters::getInstance().branchPredictorExtensionRatio() = MainWindow::getInstance()->getUi()->parameterBranchPredictorExtensionRatio->value();
-    Parameters::getInstance().branchPredictorMaxTExtension() = MainWindow::getInstance()->getUi()->parameterBranchPredictorMaxTExtension->value();
-
     road_generator_->setGeneratedMapRenderMode(MainWindow::getInstance()->getUi()->showGeneratedMap->checkState());
     road_generator_->setGeneratedMapRenderMode(MainWindow::getInstance()->getUi()->generatedMapRenderMode->currentIndex());
 }
@@ -241,10 +241,10 @@ void SceneWidget::paintGL(){
     float aspect_ratio = static_cast<float>(width()) / height();
     
     // Gray background
-    qglClearColor(QColor(220, 220, 220));
+    //qglClearColor(QColor(220, 220, 220));
     
     // White background
-    //qglClearColor(QColor(255, 255, 255));
+    qglClearColor(QColor(255, 255, 255));
     
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     m_program_->bind();
@@ -466,6 +466,14 @@ void SceneWidget::slotSetShowDirection(int state){
     updateGL();
 }
 
+void SceneWidget::slotSetShowTrajectory(int state){
+    if (state == Qt::Unchecked)
+        trajectories_->setShowTrajectory(false);
+    else
+        trajectories_->setShowTrajectory(true);
+    updateGL();
+}
+
 /*
         Samples
  */
@@ -528,6 +536,7 @@ void SceneWidget::slotOpenOsmMap(void)
         updateSceneBoundary();
         updateGL();
         emit osmFileLoaded(filename);
+        road_generator_->setOpenStreetMap(osmMap_);
     }
     
     return;
@@ -628,6 +637,21 @@ void SceneWidget::slotRoadGeneratorTmp(){
 
 void SceneWidget::slotRoadGeneratorEvaluationMapMatching(){
     road_generator_->evaluationMapMatching();
+    updateGL();
+}
+
+void SceneWidget::slotRoadGeneratorEvaluationMapMatchingToOsm(){
+    road_generator_->evaluationMapMatchingToOsm();
+    updateGL();
+}
+
+void SceneWidget::slotRoadGeneratorEvaluationCompareDistance(){
+    road_generator_->compareDistance();
+    updateGL();
+}
+
+void SceneWidget::slotRoadGeneratorEvaluationShowTrajectory(){
+    road_generator_->showTrajectory();
     updateGL();
 }
 

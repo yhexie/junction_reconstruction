@@ -77,7 +77,7 @@ Trajectories::Trajectories(QObject *parent) : Renderable(parent),
         // points
     scale_factor_ = 1.0f;
     point_size_ = 5.0f;
-    line_width_ = 3.0f;
+    line_width_ = 1.0f;
     normalized_vertices_.clear();
     vertex_colors_const_.clear();
     vertex_colors_individual_.clear();
@@ -414,7 +414,6 @@ bool Trajectories::loadPBF(const string &filename){
             return false;
         }
         coded_input->PopLimit(limit);
-
         if (id_traj == 0) {
             // Check if the x, y field of new_traj point is correct according to current projector. If not, we will reporject all x, y field from lat lon coordinate.
             float x;
@@ -426,14 +425,13 @@ bool Trajectories::loadPBF(const string &filename){
                 has_correct_projection = true;
             }
         }
-
-        if(id_traj % 10 >= 5){
-            continue;
-        }
-
+        //if(id_traj % 10 >= 5){
+        //    continue;
+        //}
         // Add the points to point cloud and trajectory
+        if(new_traj.point_size() < 2)
+            continue;
         vector<int> trajectory;
-        trajectory.resize(new_traj.point_size());
         if (has_correct_projection) {
             for (int pt_idx=0; pt_idx < new_traj.point_size(); ++pt_idx) {
                 if (new_traj.point(pt_idx).x() < bound_box[0]) {
@@ -457,13 +455,14 @@ bool Trajectories::loadPBF(const string &filename){
                 point.lon = new_traj.point(pt_idx).lon();
                 point.lat = new_traj.point(pt_idx).lat();
                 point.speed = new_traj.point(pt_idx).speed();
-
+                if(point.speed < 100)
+                    continue;
                 if(point.speed > max_speed_)
                     max_speed_ = point.speed;
                 if(point.speed < min_speed_)
                     min_speed_ = point.speed;
                 avg_speed_ += point.speed;
-                
+
                 int new_traj_point_head = 450 - new_traj.point(pt_idx).head();
                 if (new_traj_point_head > 360) {
                     new_traj_point_head -= 360;
@@ -471,7 +470,7 @@ bool Trajectories::loadPBF(const string &filename){
                 
                 point.head = new_traj_point_head;
                
-                trajectory[pt_idx] = data_->size();
+                trajectory.emplace_back(data_->size());
                 data_->push_back(point);
             }
         }
@@ -505,7 +504,8 @@ bool Trajectories::loadPBF(const string &filename){
                 point.lon = new_traj.point(pt_idx).lon();
                 point.lat = new_traj.point(pt_idx).lat();
                 point.speed = new_traj.point(pt_idx).speed();
-
+                if(point.speed < 100)
+                    continue;
                 if(point.speed > max_speed_)
                     max_speed_ = point.speed;
                 if(point.speed < min_speed_)
@@ -519,7 +519,7 @@ bool Trajectories::loadPBF(const string &filename){
                
                 point.head = new_traj_point_head;
                 
-                trajectory[pt_idx] = data_->size();
+                trajectory.emplace_back(data_->size());
                 data_->push_back(point);
             }
         }
@@ -689,6 +689,9 @@ void Trajectories::prepareForVisualization(){
 }
 
 void Trajectories::draw(){
+    if(!show_trajectory_)
+        return;
+
     if(!render_mode_){
         vertexPositionBuffer_.create();
         vertexPositionBuffer_.setUsagePattern(QOpenGLBuffer::StaticDraw);

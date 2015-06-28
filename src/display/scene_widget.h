@@ -59,6 +59,7 @@ signals:
     void slotSaveTrajectories(void);
     void slotExtractTrajectories(void);
     void slotSetShowDirection(int state);
+    void slotSetShowTrajectory(int state);
     
         // Samples
     void slotSamplePointCloud(void);
@@ -79,6 +80,10 @@ signals:
     void slotRoadGeneratorComputeUnexplainedGPSPoints();
     void slotRoadGeneratorTmp();
     void slotRoadGeneratorEvaluationMapMatching();
+    void slotRoadGeneratorEvaluationMapMatchingToOsm();
+    void slotRoadGeneratorEvaluationCompareDistance();
+    void slotRoadGeneratorEvaluationShowTrajectory();
+
     void slotRoadGeneratorSetGeneratedMapShowOption(int);
     void slotRoadGeneratorSetGeneratedMapRenderingMode(int);
     

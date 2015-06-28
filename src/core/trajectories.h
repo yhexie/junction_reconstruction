@@ -33,6 +33,7 @@ public:
     vector<Color>&  vertex_colors(void) { return vertex_colors_const_; }
     void toggleRenderMode() { render_mode_ = !render_mode_;}
     void setShowDirection(bool  val) { show_direction_ = val; }
+    void setShowTrajectory(bool val) { show_trajectory_ = val; }
     
     // Point Cloud
     PclPointCloud::Ptr& data(void) {return data_;}
@@ -123,6 +124,7 @@ private:
     bool                 render_mode_;
     bool                 selection_mode_;
     bool                 show_direction_;
+    bool                 show_trajectory_;
 };
 
 #endif // TRAJECTORIES_H_

@@ -241,21 +241,21 @@ int OpenStreetMap::getWayWidth(OsmWay &aWay){
     switch (aWay.wayType()) {
         case MOTORWAY:
         case MOTORWAY_LINK:
-            return 5;
+            return 15;
         case TRUNK:
         case TRUNK_LINK:
-            return 4;
+            return 12;
         case PRIMARY:
         case PRIMARY_LINK:
-            return 3;
+            return 9;
         case SECONDARY:
         case SECONDARY_LINK:
-            return 3;
+            return 9;
         case TERTIARY:
         case TERTIARY_LINK:
-            return 3;
+            return 9;
         default:
-            return 3;
+            return 9;
     }
 }
 
@@ -284,10 +284,9 @@ void OpenStreetMap::draw(){
         element_buffer.allocate(&(way_idxs_[i][0]), way_idxs_[i].size()*sizeof(unsigned));
         glLineWidth(way_widths_[i]);
         glDrawElements(GL_LINE_STRIP, way_idxs_[i].size(), GL_UNSIGNED_INT, 0);
-        glPointSize(way_widths_[i]*2);
+        glPointSize(way_widths_[i]*1.5);
         glDrawElements(GL_POINTS, way_idxs_[i].size(), GL_UNSIGNED_INT, 0);
     }
-   
     // draw arrows
     QOpenGLBuffer vertex_buffer;
     vertex_buffer.create();
@@ -295,14 +294,12 @@ void OpenStreetMap::draw(){
     vertex_buffer.bind();
     vertex_buffer.allocate(&direction_vertices_[0], 3*direction_vertices_.size()*sizeof(float));
     shader_program_->setupPositionAttributes();
-    
     QOpenGLBuffer color_buffer;
     color_buffer.create();
     color_buffer.setUsagePattern(QOpenGLBuffer::StaticDraw);
     color_buffer.bind();
     color_buffer.allocate(&direction_colors_[0], 4*direction_colors_.size()*sizeof(float));
     shader_program_->setupColorAttributes();
-    
     for (size_t i=0; i < direction_idxs_.size(); ++i) {
         QOpenGLBuffer element_buffer(QOpenGLBuffer::IndexBuffer);
         element_buffer.create();
@@ -321,7 +318,7 @@ void MyShapeHandler::node(const boost::shared_ptr<const Osmium::OSM::Node> &node
         try {
             Osmium::Geometry::Point point(*node);
         } catch (Osmium::Geometry::IllegalGeometry) {
-            cerr << "Ignoring ilegal geometry for node " << node->id() <<".\n";
+            cerr << "Ignoring illegal geometry for node " << node->id() <<".\n";
         }
     }
 }
@@ -452,62 +449,68 @@ void OpenStreetMap::updateMapSearchTree(float grid_size){
     
     PclPoint point;
     point.setNormal(0, 0, 1);
+
+    // Interpolate ways_
+    map<int, int> node_idx_map;
     for (size_t i = 0; i < ways_.size(); ++i) {
         OsmWay &aWay = ways_[i];
         vector<int> this_way_point_idxs; // Record the interpolated way point idxs in the point cloud
         if (aWay.eastings().size() == 0)
             continue;
         for (int j = 0; j < aWay.eastings().size()-1; ++j) {
+            // Add aWay[j]
+            if(node_idx_map.find(aWay.node_ids()[j]) != node_idx_map.end()){
+                // Node already added
+                this_way_point_idxs.emplace_back(node_idx_map[aWay.node_ids()[j]]);
+            }
+            else{
+                // Add new node
+                point.setCoordinate(aWay.eastings()[j], aWay.northings()[j], 0.0f);
+                point.id_trajectory = i; // This will record the osmWay id
+                node_idx_map[aWay.node_ids()[j]] = map_point_cloud_->size();
+                this_way_point_idxs.push_back(map_point_cloud_->size());
+                map_point_cloud_->push_back(point);
+            }
+            // Interpolate if necessary
             Vector2d start(aWay.eastings()[j], aWay.northings()[j]);
             Vector2d end(aWay.eastings()[j+1], aWay.northings()[j+1]);
             Vector2d vec = end - start;
             float length = vec.norm();
-            vec.normalize();
-            float heading = acos(vec[0]) * 180.0f / PI;
-            if (vec[1] < 0) {
-                heading = 360.0f - heading;
-            }
-            
-            int n_pt = ceil(length / grid_size);
-            float delta_length = length / n_pt;
-            for (int k = 0; k < n_pt; ++k) {
-                Vector2d pt = start + vec * k * delta_length;
-                point.setCoordinate(pt.x(), pt.y(), 0.0f);
-                point.id_trajectory = i; // This will record the osmWay id
-                
-                int node_degree = 2;
-                if(k == 0){
-                    node_degree = nodes_[aWay.node_ids()[j]].degree();
+            if(length > 1e-3){
+                vec /= length;
+                int n_pt = floor(length / grid_size);
+                float delta_length = length / (n_pt+1);
+                for (int k = 0; k < n_pt; ++k) {
+                    Vector2d pt = start + vec * (k+1) * delta_length;
+                    point.setCoordinate(pt.x(), pt.y(), 0.0f);
+                    point.id_trajectory = i; // This will record the osmWay id
+                    this_way_point_idxs.push_back(map_point_cloud_->size());
+                    map_point_cloud_->push_back(point);
                 }
-                point.id_sample = node_degree;
-                point.head = floor(heading);
-                point.car_id = static_cast<float>(this_way_point_idxs.size());
-                this_way_point_idxs.push_back(map_point_cloud_->size());
-                map_point_cloud_->push_back(point);
             }
         }
-        
         // Insert the last point
         int last_pt_id = aWay.eastings().size() - 1;
-        Vector2d start(aWay.eastings()[last_pt_id-1], aWay.northings()[last_pt_id-1]);
-        Vector2d end(aWay.eastings()[last_pt_id], aWay.northings()[last_pt_id]);
-        Vector2d vec = end - start;
-        vec.normalize();
-        float heading = acos(vec[0]) * 180.0f / PI;
-        if (vec[1] < 0) {
-            heading = 360.0f - heading;
+        if(node_idx_map.find(aWay.node_ids()[last_pt_id]) != node_idx_map.end()){
+            // Node already added
+            this_way_point_idxs.emplace_back(node_idx_map[aWay.node_ids()[last_pt_id]]);
         }
-        
-        point.setCoordinate(aWay.eastings()[last_pt_id], aWay.northings()[last_pt_id], 0.0f);
-        point.id_trajectory = i; // This will record the osmWay id
-        point.id_sample = nodes_[aWay.node_ids()[last_pt_id]].degree();
-        point.head = floor(heading);
-        point.car_id = static_cast<float>(this_way_point_idxs.size()); // temporarily store the index of this point in way_point_idxs_ for calculating branching feature
-        
-        this_way_point_idxs.push_back(map_point_cloud_->size());
-        map_point_cloud_->push_back(point);
-        
+        else{
+            // Add new node
+            point.setCoordinate(aWay.eastings()[last_pt_id], aWay.northings()[last_pt_id], 0.0f);
+            point.id_trajectory = i; // This will record the osmWay id
+            this_way_point_idxs.push_back(map_point_cloud_->size());
+            node_idx_map[aWay.node_ids()[last_pt_id]] = map_point_cloud_->size();
+            map_point_cloud_->push_back(point);
+        }
         way_point_idxs_.push_back(this_way_point_idxs);
+        if(!aWay.isOneway()){
+            vector<int> this_way_bwd_point_idxs; // Record the interpolated way point idxs in the point cloud
+            for (int j = this_way_point_idxs.size()-1; j >= 0; --j) { 
+                this_way_bwd_point_idxs.emplace_back(this_way_point_idxs[j]);
+            } 
+            way_point_idxs_.push_back(this_way_bwd_point_idxs);
+        }
     }
     map_search_tree_->setInputCloud(map_point_cloud_);
 }

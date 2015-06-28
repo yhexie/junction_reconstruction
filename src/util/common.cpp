@@ -333,6 +333,59 @@ int decreaseHeadingBy(int delta_heading,
     return (orig_heading - delta_heading + 360) % 360;
 }
 
+void uniformSampleCurve(vector<RoadPt>& center_line, float interval_size){
+    /*
+     *Uniformly sample centerline with fixed interval_size
+     */
+    float cum_length = 0.0f;
+    vector<float> length_map(center_line.size(), 0.0f);
+    for (size_t i = 1; i < center_line.size(); ++i) { 
+        float dx = center_line[i].x - center_line[i-1].x;
+        float dy = center_line[i].y - center_line[i-1].y;
+        cum_length += sqrt(dx*dx + dy*dy);
+        length_map[i] = cum_length;
+    } 
+    int N_POINTS_TO_ADD = floor(cum_length / interval_size);
+    float adjusted_interval_size = cum_length / N_POINTS_TO_ADD;
+    vector<RoadPt> new_center_line;
+    new_center_line.emplace_back(center_line[0]);
+    float cur_length = 0.0f;
+    for (size_t i = 1; i < N_POINTS_TO_ADD; ++i) { 
+        float target_length = i * adjusted_interval_size;
+        // Find the interval contains this target length
+        int target_idx = 0;
+        for (size_t j = 0; j < length_map.size(); ++j) { 
+            if(length_map[j] > target_length){
+                target_idx = j;
+                break;
+            }
+        } 
+        if(target_idx >= center_line.size())
+            break;
+        // The interval is target_idx to target_idx+1
+        float dx = center_line[target_idx].x - center_line[target_idx-1].x;
+        float dy = center_line[target_idx].y - center_line[target_idx-1].y;
+        float delta_length = sqrt(dx*dx + dy*dy);
+        float ratio = 1.0f - (target_length - length_map[target_idx-1]) / delta_length;
+        Eigen::Vector2d first_pt(center_line[target_idx-1].x, center_line[target_idx-1].y);
+        Eigen::Vector2d second_pt(center_line[target_idx].x, center_line[target_idx].y);
+        Eigen::Vector2d loc = ratio * first_pt + (1.0f - ratio) * second_pt;
+        Eigen::Vector2d heading_dir = ratio * headingTo2dVector(center_line[target_idx-1].head) +
+                                      (1 - ratio) * headingTo2dVector(center_line[target_idx].head);
+        int speed = ratio * center_line[target_idx-1].speed + (1-ratio) * center_line[target_idx].speed;
+        RoadPt new_pt;
+        new_pt.x = loc.x();
+        new_pt.y = loc.y();
+        new_pt.head = vector2dToHeading(heading_dir);
+        new_pt.n_lanes = center_line[target_idx].n_lanes;
+        new_pt.speed = speed;
+        new_center_line.emplace_back(new_pt);
+    } 
+    new_center_line.emplace_back(center_line.back());
+    center_line.clear();
+    center_line = std::move(new_center_line);
+}
+
 void smoothCurve(vector<RoadPt>& center_line, bool fix_front){
     /*
      This function smooth the road center line represented as a vector of RoadPt.
@@ -351,9 +404,7 @@ void smoothCurve(vector<RoadPt>& center_line, bool fix_front){
                 continue;
             cum_vec += headingTo2dVector(center_line[j].head);
         }
-
         center_line[i].head = vector2dToHeading(cum_vec);
-
         if(i > 0){
             float delta_x = center_line[i].x - center_line[i-1].x;
             float delta_y = center_line[i].y - center_line[i-1].y;
@@ -361,17 +412,17 @@ void smoothCurve(vector<RoadPt>& center_line, bool fix_front){
         }
     }
 
-    float delta = 15.0f; // simplify center_line
-    int N = ceil(center_line.size() * delta / cum_length);
+    //float delta = 15.0f; // simplify center_line
+    //int N = ceil(center_line.size() * delta / cum_length);
 
     vector<RoadPt> tmp_center_line;
-    for(int i = 0; i < center_line.size(); i = i+N){
+    for(int i = 0; i < center_line.size(); ++i){
         tmp_center_line.emplace_back(RoadPt(center_line[i]));
     }
 
-    if((center_line.size() - 1) % N != 0){
-        tmp_center_line.emplace_back(RoadPt(center_line.back()));
-    }
+    //if((center_line.size() - 1) % N != 0){
+    //    tmp_center_line.emplace_back(RoadPt(center_line.back()));
+    //}
 
     vector<float> orig_xs;
     vector<float> orig_ys;
@@ -537,25 +588,23 @@ void smoothCurve(vector<RoadPt>& center_line, bool fix_front){
 
     center_line.clear();
     // Interpolate
-    float resolution = 5.0f; // in meters 
+    //float resolution = 5.0f; // in meters 
     center_line.emplace_back(tmp_center_line[0]);
     for(int i = 1; i < tmp_center_line.size(); ++i){
-        Eigen::Vector2d vec(tmp_center_line[i].x - tmp_center_line[i-1].x,
-                                tmp_center_line[i].y - tmp_center_line[i-1].y);
-        float delta_d = vec.norm();
-
-        if(delta_d > resolution){
-            int n_to_insert = floor(delta_d / resolution);
-            float d = delta_d / (n_to_insert + 1);
-            vec.normalize();
-            for(int j = 0; j < n_to_insert; ++j){
-                RoadPt new_pt(tmp_center_line[i-1]);
-                new_pt.x = tmp_center_line[i-1].x + (j+1) * d * vec.x();
-                new_pt.y = tmp_center_line[i-1].y + (j+1) * d * vec.y();
-                center_line.emplace_back(new_pt);
-            }
-        }
-
+        //Eigen::Vector2d vec(tmp_center_line[i].x - tmp_center_line[i-1].x,
+        //                        tmp_center_line[i].y - tmp_center_line[i-1].y);
+        //float delta_d = vec.norm();
+        //if(delta_d > resolution){
+        //    int n_to_insert = floor(delta_d / resolution);
+        //    float d = delta_d / (n_to_insert + 1);
+        //    vec.normalize();
+        //    for(int j = 0; j < n_to_insert; ++j){
+        //        RoadPt new_pt(tmp_center_line[i-1]);
+        //        new_pt.x = tmp_center_line[i-1].x + (j+1) * d * vec.x();
+        //        new_pt.y = tmp_center_line[i-1].y + (j+1) * d * vec.y();
+        //        center_line.emplace_back(new_pt);
+        //    }
+        //}
         center_line.emplace_back(tmp_center_line[i]);
     }
 }

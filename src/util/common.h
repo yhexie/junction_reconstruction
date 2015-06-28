@@ -70,11 +70,13 @@ struct RoadPt{
     float y;
     int   head;
     int   n_lanes;
+    int   speed; // cm/s
     
     RoadPt() {
         x = 0.0f;
         y = 0.0f;
         head = 0;
+        speed = 0;
         n_lanes = 1;
     }
     
@@ -100,6 +102,7 @@ struct RoadPt{
         y = pt.y;
         head = pt.head;
         n_lanes = pt.n_lanes;
+        speed = pt.speed;
     }
 };
 
@@ -129,6 +132,7 @@ int increaseHeadingBy(int delta_heading,
 int decreaseHeadingBy(int delta_heading,
                       const int orig_heading);
 
+void uniformSampleCurve(vector<RoadPt>& center_line, float interval_size = 5.0f);
 void smoothCurve(vector<RoadPt>& center_line, bool fix_front = true);
 
 

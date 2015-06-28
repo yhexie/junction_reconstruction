@@ -218,6 +218,81 @@
              </property>
             </widget>
            </item>
+           <item>
+            <widget class="QPushButton" name="roadGeneratorEvaluationMapMatchingToOsm">
+             <property name="text">
+              <string>Map Matching to OSM</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="roadGeneratorEvaluationCompareDistance">
+             <property name="text">
+              <string>Compare Distance</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="label_4">
+             <property name="text">
+              <string>Blue: orig, Red: our, Green: OSM</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="roadGeneratorEvaluationShowTrajectory">
+             <property name="text">
+              <string>Show</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QFrame" name="frame_6">
+             <property name="frameShape">
+              <enum>QFrame::NoFrame</enum>
+             </property>
+             <property name="frameShadow">
+              <enum>QFrame::Plain</enum>
+             </property>
+             <layout class="QHBoxLayout" name="horizontalLayout_5">
+              <property name="leftMargin">
+               <number>0</number>
+              </property>
+              <property name="topMargin">
+               <number>0</number>
+              </property>
+              <property name="rightMargin">
+               <number>0</number>
+              </property>
+              <property name="bottomMargin">
+               <number>0</number>
+              </property>
+              <item>
+               <widget class="QLabel" name="label_2">
+                <property name="text">
+                 <string>Matchiing Threshold:</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <spacer name="horizontalSpacer_2">
+                <property name="orientation">
+                 <enum>Qt::Horizontal</enum>
+                </property>
+                <property name="sizeHint" stdset="0">
+                 <size>
+                  <width>40</width>
+                  <height>20</height>
+                 </size>
+                </property>
+               </spacer>
+              </item>
+              <item>
+               <widget class="QDoubleSpinBox" name="doubleSpinBox"/>
+              </item>
+             </layout>
+            </widget>
+           </item>
           </layout>
          </widget>
         </item>
@@ -271,6 +346,16 @@
               <string>No trajectories has been loaded yet.</string>
              </property>
              <property name="wordWrap">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="showTrajectory">
+             <property name="text">
+              <string>Show Trajectory</string>
+             </property>
+             <property name="checked">
               <bool>true</bool>
              </property>
             </widget>
@@ -348,7 +433,7 @@
                  </size>
                 </property>
                 <property name="currentIndex">
-                 <number>1</number>
+                 <number>0</number>
                 </property>
                 <item>
                  <property name="text">
@@ -360,134 +445,6 @@
                   <string>SF, UTM 10</string>
                  </property>
                 </item>
-               </widget>
-              </item>
-             </layout>
-            </widget>
-           </item>
-           <item>
-            <widget class="QLabel" name="sampleInfoLabel">
-             <property name="sizePolicy">
-              <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
-               <horstretch>0</horstretch>
-               <verstretch>0</verstretch>
-              </sizepolicy>
-             </property>
-             <property name="minimumSize">
-              <size>
-               <width>0</width>
-               <height>0</height>
-              </size>
-             </property>
-             <property name="font">
-              <font>
-               <pointsize>13</pointsize>
-              </font>
-             </property>
-             <property name="text">
-              <string>No samples have been drawn yet.</string>
-             </property>
-             <property name="wordWrap">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QFrame" name="frame_6">
-             <property name="minimumSize">
-              <size>
-               <width>0</width>
-               <height>0</height>
-              </size>
-             </property>
-             <property name="frameShape">
-              <enum>QFrame::NoFrame</enum>
-             </property>
-             <property name="frameShadow">
-              <enum>QFrame::Raised</enum>
-             </property>
-             <layout class="QHBoxLayout" name="horizontalLayout_5">
-              <property name="leftMargin">
-               <number>0</number>
-              </property>
-              <property name="topMargin">
-               <number>0</number>
-              </property>
-              <property name="rightMargin">
-               <number>0</number>
-              </property>
-              <property name="bottomMargin">
-               <number>0</number>
-              </property>
-              <item>
-               <widget class="QLabel" name="label_2">
-                <property name="font">
-                 <font>
-                  <pointsize>13</pointsize>
-                 </font>
-                </property>
-                <property name="text">
-                 <string>Radius:</string>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QDoubleSpinBox" name="sampleCoverDistanceSpinBox">
-                <property name="sizePolicy">
-                 <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
-                  <horstretch>0</horstretch>
-                  <verstretch>0</verstretch>
-                 </sizepolicy>
-                </property>
-                <property name="suffix">
-                 <string>m</string>
-                </property>
-                <property name="decimals">
-                 <number>1</number>
-                </property>
-                <property name="singleStep">
-                 <double>5.000000000000000</double>
-                </property>
-                <property name="value">
-                 <double>10.000000000000000</double>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <spacer name="horizontalSpacer_2">
-                <property name="orientation">
-                 <enum>Qt::Horizontal</enum>
-                </property>
-                <property name="sizeHint" stdset="0">
-                 <size>
-                  <width>40</width>
-                  <height>20</height>
-                 </size>
-                </property>
-               </spacer>
-              </item>
-              <item>
-               <widget class="QCheckBox" name="showSampleCheckBox">
-                <property name="sizePolicy">
-                 <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
-                  <horstretch>0</horstretch>
-                  <verstretch>0</verstretch>
-                 </sizepolicy>
-                </property>
-                <property name="font">
-                 <font>
-                  <pointsize>13</pointsize>
-                 </font>
-                </property>
-                <property name="layoutDirection">
-                 <enum>Qt::RightToLeft</enum>
-                </property>
-                <property name="text">
-                 <string>Samples</string>
-                </property>
-                <property name="checked">
-                 <bool>true</bool>
-                </property>
                </widget>
               </item>
              </layout>
@@ -807,69 +764,6 @@
             </widget>
            </item>
            <item>
-            <widget class="QFrame" name="frame_20">
-             <property name="frameShape">
-              <enum>QFrame::NoFrame</enum>
-             </property>
-             <property name="frameShadow">
-              <enum>QFrame::Raised</enum>
-             </property>
-             <layout class="QHBoxLayout" name="horizontalLayout_17">
-              <property name="leftMargin">
-               <number>0</number>
-              </property>
-              <property name="topMargin">
-               <number>5</number>
-              </property>
-              <property name="rightMargin">
-               <number>0</number>
-              </property>
-              <property name="bottomMargin">
-               <number>5</number>
-              </property>
-              <item>
-               <widget class="QLabel" name="label_15">
-                <property name="text">
-                 <string>Max. Heading Error: </string>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <spacer name="horizontalSpacer_10">
-                <property name="orientation">
-                 <enum>Qt::Horizontal</enum>
-                </property>
-                <property name="sizeHint" stdset="0">
-                 <size>
-                  <width>40</width>
-                  <height>20</height>
-                 </size>
-                </property>
-               </spacer>
-              </item>
-              <item>
-               <widget class="QDoubleSpinBox" name="parameterGPSErrorHeading">
-                <property name="suffix">
-                 <string> deg</string>
-                </property>
-                <property name="decimals">
-                 <number>0</number>
-                </property>
-                <property name="minimum">
-                 <double>5.000000000000000</double>
-                </property>
-                <property name="maximum">
-                 <double>30.000000000000000</double>
-                </property>
-                <property name="value">
-                 <double>15.000000000000000</double>
-                </property>
-               </widget>
-              </item>
-             </layout>
-            </widget>
-           </item>
-           <item>
             <widget class="QFrame" name="frame_15">
              <property name="frameShape">
               <enum>QFrame::NoFrame</enum>
@@ -965,7 +859,7 @@
                  </font>
                 </property>
                 <property name="text">
-                 <string>Point votes for road</string>
+                 <string>Voting</string>
                 </property>
                </widget>
               </item>
@@ -993,7 +887,7 @@
                  <item>
                   <widget class="QLabel" name="label_17">
                    <property name="text">
-                    <string>Sigma h</string>
+                    <string>Sigma l</string>
                    </property>
                   </widget>
                  </item>
@@ -1102,6 +996,69 @@
                </widget>
               </item>
               <item>
+               <widget class="QFrame" name="frame_20">
+                <property name="frameShape">
+                 <enum>QFrame::NoFrame</enum>
+                </property>
+                <property name="frameShadow">
+                 <enum>QFrame::Raised</enum>
+                </property>
+                <layout class="QHBoxLayout" name="horizontalLayout_17">
+                 <property name="leftMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="topMargin">
+                  <number>5</number>
+                 </property>
+                 <property name="rightMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="bottomMargin">
+                  <number>5</number>
+                 </property>
+                 <item>
+                  <widget class="QLabel" name="label_15">
+                   <property name="text">
+                    <string>Sigma h</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <spacer name="horizontalSpacer_10">
+                   <property name="orientation">
+                    <enum>Qt::Horizontal</enum>
+                   </property>
+                   <property name="sizeHint" stdset="0">
+                    <size>
+                     <width>40</width>
+                     <height>20</height>
+                    </size>
+                   </property>
+                  </spacer>
+                 </item>
+                 <item>
+                  <widget class="QDoubleSpinBox" name="parameterGPSErrorHeading">
+                   <property name="suffix">
+                    <string> deg</string>
+                   </property>
+                   <property name="decimals">
+                    <number>0</number>
+                   </property>
+                   <property name="minimum">
+                    <double>5.000000000000000</double>
+                   </property>
+                   <property name="maximum">
+                    <double>30.000000000000000</double>
+                   </property>
+                   <property name="value">
+                    <double>15.000000000000000</double>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </widget>
+              </item>
+              <item>
                <widget class="QFrame" name="frame">
                 <property name="frameShape">
                  <enum>QFrame::NoFrame</enum>
@@ -1125,7 +1082,7 @@
                  <item>
                   <widget class="QLabel" name="label">
                    <property name="text">
-                    <string>Grid size:</string>
+                    <string>Grid size (w_c)</string>
                    </property>
                   </widget>
                  </item>
@@ -1242,160 +1199,6 @@
               </size>
              </property>
             </spacer>
-           </item>
-           <item>
-            <widget class="QFrame" name="frame_16">
-             <property name="frameShape">
-              <enum>QFrame::StyledPanel</enum>
-             </property>
-             <property name="frameShadow">
-              <enum>QFrame::Raised</enum>
-             </property>
-             <layout class="QVBoxLayout" name="verticalLayout_10">
-              <property name="leftMargin">
-               <number>0</number>
-              </property>
-              <property name="topMargin">
-               <number>5</number>
-              </property>
-              <property name="rightMargin">
-               <number>0</number>
-              </property>
-              <property name="bottomMargin">
-               <number>5</number>
-              </property>
-              <item>
-               <widget class="QLabel" name="label_10">
-                <property name="font">
-                 <font>
-                  <weight>75</weight>
-                  <bold>true</bold>
-                 </font>
-                </property>
-                <property name="text">
-                 <string>Branch Predictor</string>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QFrame" name="frame_17">
-                <property name="frameShape">
-                 <enum>QFrame::NoFrame</enum>
-                </property>
-                <property name="frameShadow">
-                 <enum>QFrame::Raised</enum>
-                </property>
-                <layout class="QHBoxLayout" name="horizontalLayout_14">
-                 <property name="topMargin">
-                  <number>5</number>
-                 </property>
-                 <property name="bottomMargin">
-                  <number>5</number>
-                 </property>
-                 <item>
-                  <widget class="QLabel" name="label_11">
-                   <property name="text">
-                    <string>Extension Ratio: </string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <spacer name="horizontalSpacer_7">
-                   <property name="orientation">
-                    <enum>Qt::Horizontal</enum>
-                   </property>
-                   <property name="sizeHint" stdset="0">
-                    <size>
-                     <width>40</width>
-                     <height>20</height>
-                    </size>
-                   </property>
-                  </spacer>
-                 </item>
-                 <item>
-                  <widget class="QDoubleSpinBox" name="parameterBranchPredictorExtensionRatio">
-                   <property name="suffix">
-                    <string> x R</string>
-                   </property>
-                   <property name="decimals">
-                    <number>1</number>
-                   </property>
-                   <property name="minimum">
-                    <double>1.000000000000000</double>
-                   </property>
-                   <property name="maximum">
-                    <double>10.000000000000000</double>
-                   </property>
-                   <property name="value">
-                    <double>3.000000000000000</double>
-                   </property>
-                  </widget>
-                 </item>
-                </layout>
-               </widget>
-              </item>
-              <item>
-               <widget class="QFrame" name="frame_18">
-                <property name="frameShape">
-                 <enum>QFrame::NoFrame</enum>
-                </property>
-                <property name="frameShadow">
-                 <enum>QFrame::Raised</enum>
-                </property>
-                <layout class="QHBoxLayout" name="horizontalLayout_15">
-                 <property name="topMargin">
-                  <number>5</number>
-                 </property>
-                 <property name="bottomMargin">
-                  <number>5</number>
-                 </property>
-                 <item>
-                  <widget class="QLabel" name="label_13">
-                   <property name="text">
-                    <string>Max t Extension:</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <spacer name="horizontalSpacer_8">
-                   <property name="orientation">
-                    <enum>Qt::Horizontal</enum>
-                   </property>
-                   <property name="sizeHint" stdset="0">
-                    <size>
-                     <width>40</width>
-                     <height>20</height>
-                    </size>
-                   </property>
-                  </spacer>
-                 </item>
-                 <item>
-                  <widget class="QDoubleSpinBox" name="parameterBranchPredictorMaxTExtension">
-                   <property name="suffix">
-                    <string> sec</string>
-                   </property>
-                   <property name="decimals">
-                    <number>1</number>
-                   </property>
-                   <property name="minimum">
-                    <double>1.000000000000000</double>
-                   </property>
-                   <property name="maximum">
-                    <double>1000.000000000000000</double>
-                   </property>
-                   <property name="singleStep">
-                    <double>5.000000000000000</double>
-                   </property>
-                   <property name="value">
-                    <double>30.000000000000000</double>
-                   </property>
-                  </widget>
-                 </item>
-                </layout>
-               </widget>
-              </item>
-             </layout>
-            </widget>
            </item>
           </layout>
          </widget>

@@ -4,11 +4,11 @@ Projector::Projector(){
     x_offset_ = SF_X_OFFSET;
     y_offset_ = SF_Y_OFFSET;
     
-    if (!(src_proj_ = pj_init_plus(SF_SRC_PROJ))) {
+    if (!(src_proj_ = pj_init_plus(BJ_SRC_PROJ))) {
         fprintf(stderr, "Error! Cannot initialize latlon to XY projector!\n");
         exit(1);
     }
-    if (!(dst_proj_ = pj_init_plus(SF_DST_PROJ))) {
+    if (!(dst_proj_ = pj_init_plus(BJ_DST_PROJ))) {
         fprintf(stderr, "Error! Cannot initialize latlon to XY projector!\n");
         exit(1);
     }

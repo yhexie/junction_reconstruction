@@ -59,7 +59,6 @@ private slots:
 	void slotShowStatus(const QString& status, int timeout);
     void slotTrajFileLoaded(QString &filename, const size_t &numTraj, const size_t &numPoint);
     void slotOsmFileLoaded(QString &filename);
-    void slotNewSamplesDrawn(QString &);
     void slotSetUTMZone(int);
     
 private:

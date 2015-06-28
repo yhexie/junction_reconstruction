@@ -68,6 +68,16 @@ typedef boost::adjacency_list<boost::vecS, boost::vecS, boost::bidirectionalS, R
 typedef boost::graph_traits<road_graph_t>::vertex_descriptor road_graph_vertex_descriptor;
 typedef boost::graph_traits<road_graph_t>::edge_descriptor road_graph_edge_descriptor;
 
+struct Link{
+    road_graph_vertex_descriptor source_vertex; // in road_graph_
+    road_graph_vertex_descriptor target_vertex; // in road_graph_
+    int source_related_road_idx; // in related_roads defined below
+    int source_idx_in_related_roads; // in related roads defined below
+    int target_related_road_idx; // in related roads defined below
+    int target_idx_in_related_roads; // in related roads defined below
+    bool is_bidirectional = false;
+};
+
 enum class GeneratedMapRenderingMode{
     realistic = 0,
     skeleton = 1
@@ -82,30 +92,53 @@ public:
     void setTrajectories(std::shared_ptr<Trajectories>& new_trajectories) {
         trajectories_ = new_trajectories;
     }
+
+    void setOpenStreetMap(std::shared_ptr<OpenStreetMap>& new_osm){
+        osmMap_ = new_osm;
+        updateOsmGraph();
+    }
     
+    void updateOsmGraph();
     void pointBasedVoting(); 
     void computeVoteLocalMaxima();
     void pointBasedVotingVisualization();
+    void estimateRoadWidthAndSpeed(vector<RoadPt>& road, float threshold);
+    void adjustOppositeRoads();
     bool computeInitialRoadGuess();
     void computeUnexplainedGPSPoints();
     bool updateRoadPointCloud();
     bool addInitialRoad();
     void recomputeRoads();
+    void computeJunctionClusters(vector<set<road_graph_vertex_descriptor>>& junc_clusters);
+    void localAdjustments();
     void prepareGeneratedMap();
+    void connectLink(const Link& link, 
+                     bool is_perp_link, 
+                     vector<road_graph_vertex_descriptor>& source_road,
+                     vector<road_graph_vertex_descriptor>& target_road);
     void connectRoads();
+    void finalAdjustment();
     
     void tmpFunc();
     
     // Trajectory - Road projection
-    float shortestPath(road_graph_vertex_descriptor source, road_graph_vertex_descriptor target, vector<road_graph_vertex_descriptor>& path);
+    float shortestPath(road_graph_vertex_descriptor source, 
+                       road_graph_vertex_descriptor target, 
+                       road_graph_t&                graph,              
+                       vector<road_graph_vertex_descriptor>& path);
     bool mapMatching(size_t traj_idx, vector<road_graph_vertex_descriptor>& projection);
-    void partialMapMatching(size_t traj_idx, vector<int>& projection, float cut_off_probability);    
+    bool mapMatchingToOsm(size_t traj_idx, vector<road_graph_vertex_descriptor>& projection);
+    void partialMapMatching(size_t traj_idx, float search_radius, float cut_off_probability, vector<int>& projection);    
+
+    void compareDistance();
+    void showTrajectory();
 
     void computeGPSPointsOnRoad(const vector<RoadPt>& road,
                                 set<int>& results); 
 
     // Evaluation
     void evaluationMapMatching(); 
+    void evaluationMapMatchingToOsm();
 
     // Rendering
     void draw();
@@ -154,6 +187,7 @@ private:
     float                                         min_road_length_;
 
     // Graph as the road network
+    bool                                          road_graph_valid_;
     road_graph_t                                  road_graph_;
     PclPointCloud::Ptr                            road_points_;
     PclSearchTree::Ptr                            road_point_search_tree_;
@@ -166,13 +200,20 @@ private:
     vector<vector<road_graph_vertex_descriptor>>  map_matched_trajectories_;
     int                                           test_i_;
 
+    // OpenStreetMap
+    bool                                          osm_map_valid_;
+    std::shared_ptr<OpenStreetMap>                osmMap_;
+    road_graph_t                                  osm_graph_;
+    vector<vector<road_graph_vertex_descriptor>>  osm_trajectories_;
+    int                                           traj_idx_to_show_;
+
     // Visualize generated map
     bool                                          show_generated_map_;
     GeneratedMapRenderingMode                     generated_map_render_mode_;
     vector<Vertex>                                generated_map_points_;
     vector<Color>                                 generated_map_point_colors_; 
-    vector<vector<Vertex>>                        generated_map_line_loops_;
-    vector<vector<Color>>                         generated_map_line_loop_colors_;
+    vector<vector<Vertex>>                        generated_map_triangle_strips_;
+    vector<vector<Color>>                         generated_map_triangle_strip_colors_;
     vector<Vertex>                                generated_map_lines_;
     vector<Color>                                 generated_map_line_colors_;
     vector<Vertex>                                generated_map_links_;
