@@ -181,7 +181,7 @@ bool Trajectories::extractTrajectoriesFromRegion(QVector4D bound_box, Trajectori
     set<int> inside_trajectory_idxs;
     for (size_t i = 0; i < k_indices.size(); ++i)
     {
-        const PclPoint &point = data_->at(k_indices[i]);
+        PclPoint &point = data_->at(k_indices[i]);
         inside_trajectory_idxs.insert(point.id_trajectory);
     }
     
@@ -192,18 +192,16 @@ bool Trajectories::extractTrajectoriesFromRegion(QVector4D bound_box, Trajectori
         
         // Traverse trajectory to chop segments.
         for (size_t pt_idx = 0; pt_idx < trajectory.size(); ++pt_idx) {
-            const PclPoint &point = data_->at(trajectory[pt_idx]);
+            PclPoint &point = data_->at(trajectory[pt_idx]);
             if (point.x < bound_box[1] && point.x > bound_box[0] && point.y < bound_box[3] && point.y > bound_box[2]) {
                 // Point is inside query bound_box
                 // Check if point is near the map
                 vector<int> k_idxs;
                 vector<float> k_dist_sqrs;
-                map_search_tree->nearestKSearch(point, 1, k_idxs, k_dist_sqrs);
+                map_search_tree->radiusSearch(point, 25.0f, k_idxs, k_dist_sqrs);
                 bool to_skip = false;
-                if (k_idxs.size() != 0) {
-                    if (k_dist_sqrs[0] > 625.0f) {
-                        to_skip = true;
-                    }
+                if (k_idxs.size() == 0) {
+                    to_skip = true;
                 }
                 if (to_skip) {
                     // If it is recording, then this trajectory is not qualified
@@ -234,8 +232,9 @@ bool Trajectories::extractTrajectoriesFromRegion(QVector4D bound_box, Trajectori
                     // Insert this point
                     //extracted_trajectory.push_back(point);
                     if (extracted_trajectory.size() > min_inside_pts + 2) {
-                        if(isQualifiedTrajectory(extracted_trajectory))
+                        if(isQualifiedTrajectory(extracted_trajectory)){
                             container->insertNewTrajectory(extracted_trajectory);
+                        }
                     }
                 }
             }
@@ -262,11 +261,13 @@ bool Trajectories::isQualifiedTrajectory(vector<PclPoint> &trajectory){
         length += sqrt(delta_x*delta_x + delta_y*delta_y);
     }
     float delta_t = trajectory[trajectory.size()-1].t - trajectory[0].t;
-    
-    float avg_velocity = length / delta_t;
-    if (avg_velocity < SPEED_FILTER) {
-        return false;
+    if(delta_t > 0){
+        float avg_velocity = length / delta_t;
+        if (avg_velocity < SPEED_FILTER) {
+            return false;
+        }
     }
+    
     return true;
 }
 

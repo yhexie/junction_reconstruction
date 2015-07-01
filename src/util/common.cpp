@@ -657,7 +657,6 @@ void sampleGPSPoints(float                     radius,
             new_pt.y         = cum_y / n_count;
             new_pt.id_sample = n_count;
             new_pt.speed     = cum_speed / n_count;
-        
             new_points->push_back(new_pt);
         }
     }

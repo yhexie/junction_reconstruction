@@ -70,7 +70,7 @@ struct RoadPt{
     float y;
     int   head;
     int   n_lanes;
-    int   speed; // cm/s
+    int   speed = 0; // cm/s
     
     RoadPt() {
         x = 0.0f;

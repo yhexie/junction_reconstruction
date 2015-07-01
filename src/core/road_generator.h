@@ -76,6 +76,9 @@ struct Link{
     int target_related_road_idx; // in related roads defined below
     int target_idx_in_related_roads; // in related roads defined below
     bool is_bidirectional = false;
+    int dh = 0;
+    float length = 0.0f;
+    float delta_speed = 0.0f;
 };
 
 enum class GeneratedMapRenderingMode{
@@ -112,10 +115,7 @@ public:
     void computeJunctionClusters(vector<set<road_graph_vertex_descriptor>>& junc_clusters);
     void localAdjustments();
     void prepareGeneratedMap();
-    void connectLink(const Link& link, 
-                     bool is_perp_link, 
-                     vector<road_graph_vertex_descriptor>& source_road,
-                     vector<road_graph_vertex_descriptor>& target_road);
+    void resolveLink(const Link& link);
     void connectRoads();
     void finalAdjustment();
     
@@ -126,6 +126,11 @@ public:
                        road_graph_vertex_descriptor target, 
                        road_graph_t&                graph,              
                        vector<road_graph_vertex_descriptor>& path);
+    float probOnRoad(const PclPoint& pt, 
+                     const PclPoint& r_pt,
+                     float sigma_w,
+                     float sigma_l,
+                     float sigma_h);
     bool mapMatching(size_t traj_idx, vector<road_graph_vertex_descriptor>& projection);
     bool mapMatchingToOsm(size_t traj_idx, vector<road_graph_vertex_descriptor>& projection);
     void partialMapMatching(size_t traj_idx, float search_radius, float cut_off_probability, vector<int>& projection);    
@@ -139,6 +144,8 @@ public:
     // Evaluation
     void evaluationMapMatching(); 
     void evaluationMapMatchingToOsm();
+    void computeHausdorffDistance();
+    void precisionRecall();
 
     // Rendering
     void draw();
